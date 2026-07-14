@@ -1,0 +1,11 @@
+/build/
+/build-*/
+/settings.json
+# Keep the public interface inventory and the test fixture reproducible in a
+# fresh checkout. Large provenance-heavy reports remain local analysis output.
+/analysis/generated/*
+!/analysis/generated/metaobjects.json
+!/analysis/generated/moc_interfaces.md
+!/analysis/generated/summary.md
+*.user
+.DS_Store

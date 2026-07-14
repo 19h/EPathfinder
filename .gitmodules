@@ -1,0 +1,6 @@
+[submodule "vendor/Livox-SDK"]
+	path = vendor/Livox-SDK
+	url = https://github.com/Livox-SDK/Livox-SDK.git
+[submodule "vendor/mavlink-c-library-v2"]
+	path = vendor/mavlink-c-library-v2
+	url = https://github.com/mavlink/c_library_v2.git
