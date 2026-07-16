@@ -34,15 +34,17 @@ Both recovered aircraft use the same core architecture:
 | Physical carrier | LEETOP board marked PN `900-14887-0000`, Rev. 2.1, dated 2023-07-26 | Manufacturer, marked PN, and revision confirmed photographically; layout is consistent with the LEETOP A603 V2.1 family |
 | Carrier software configuration | NVIDIA P3768-0000 Orin Nano reference-carrier configuration | Confirmed in both operating-system images; this identifies the board-support configuration, not the physical carrier manufacturer |
 | Cooling | Carrier-mounted active fan and heat spreader | Confirmed photographically |
-| Camera | USB UVC 1.10 device `HJ-ZOOM10-4K`, USB VID:PID `32e4:9415` | Confirmed descriptor; image sensor and lens are unknown |
+| Deployed vehicle profile | Internal `SH10_5`: `TANDEM`, `ATTACK`, `BEV`, catalog `weight=17.0`, `payload=5.0` | Directly mapped for unit 12702; strong same-reported-build inference for unit 12674, whose executable is absent. Physical manufacturer, field units, and parts remain unverified |
+| Camera | USB UVC 1.10 device `HJ-ZOOM10-4K`, USB VID:PID `32e4:9415`; VID registered to Ailipu Technology | Interface vendor and descriptor confirmed; image sensor and lens are unknown |
 | Operational video mode | 1,920 × 1,080 pixels, 30 frames/s, MJPEG, Jetson hardware decode | Confirmed; 4K operation was not observed |
+| Camera angular calibration | Approximately 120.02° horizontal × 71.30° vertical on the central axes | Confirmed retained calibration; not a sensor/lens identification |
 | Wi-Fi/Bluetooth | Intel Dual Band Wireless-AC 8265, PCI ID `8086:24fd`, with integrated Bluetooth | Confirmed |
 | Wired Ethernet | Realtek RTL8111/8168/8411 family, PCI ID `10ec:8168`, `r8168` driver | Family confirmed; exact silicon revision unknown |
 | NVMe controller | MAXIO MAP1202, PCI ID `1e4b:1202`, PCIe Gen3 ×2 | Confirmed |
 | Primary storage, unit 12702 | KingSpec NE-128 2242, 128 GB M.2-2242 NVMe | Model and device serial confirmed |
 | Primary storage, unit 12674 | 128 GB NVMe using MAXIO MAP1202 | Capacity/controller confirmed; retail model and serial unknown |
 | Primary flight-controller path | Tegra UART `ttyTHS1`, exposed as `/dev/ttyAP` | Confirmed interface; flight-controller PCB unknown |
-| Secondary controller/ELink path | USB CDC ACM, exposed as `/dev/ttyFC`; rules expect STMicroelectronics USB VCP `0483:5740` | Confirmed interface expectation; attached PCB unknown |
+| Secondary controller/ELink path | USB CDC ACM, exposed as `/dev/ttyFC`; rules expect STMicroelectronics USB VCP `0483:5740` | Confirmed live responding peer: unit 12674 logged six incoming arm-test cycles; attached PCB/MCU unknown |
 | USB expansion | Four-port high-speed USB 2.0 hub | Confirmed; hub controller unknown |
 
 NVIDIA documents P3767-0000 as the production Jetson Orin NX 16 GB module and
@@ -85,7 +87,7 @@ flowchart LR
     GCS[Ground or service client] -->|TCP JSON / network telemetry| J
     CAM[HJ-ZOOM10-4K USB UVC camera] -->|1080p30 MJPEG| J
     FC[Unidentified flight controller] <-->|UART / MAVLink| J
-    EL[Unidentified ELink controller or modem] <-->|USB CDC ACM / ELink| J
+    EL[Responding, unidentified ELink peripheral] <-->|USB CDC ACM / ELink| J
     VN[VNav service] <-->|UDP navigation and plan checks| J
     OPT[Optional radar or Livox sensor] -->|TCP or Ethernet point data| J
 
@@ -119,7 +121,9 @@ The normal information path is:
    traffic back to the separate flight controller. The low-level actuator
    loops remain inside that unidentified controller.
 6. ELink and network paths exchange vehicle state, plan data, remote-control
-   state, targets, and launcher/configurator status.
+   state, targets, and launcher/configurator status. Unit 12674 also recorded
+   six received ELink arm-test state cycles, proving a live peer on this path
+   without identifying its board or downstream load.
 7. `ClientController` exposes the local service API; `VehicleController`
    translates requests into vehicle state and subsystem operations.
 
@@ -149,12 +153,30 @@ tablet, and odometry endpoints unset or disabled. The software also contains:
 
 ## What remains unidentified
 
-Neither storage image identifies the flight-controller make/model, GNSS
-receiver, IMU, compass, barometer, propulsion system, engine controller, power
-system, antennas, airframe construction, camera sensor/lens, or any terminal
-payload, fuze, or warhead hardware. A configured Sony IMX219 device-tree node
-does not constitute installed hardware: its I²C probe failed and it was not the
-operational camera. No Quectel cellular modem was detected.
+The deployments are now constrained to the application's `SH10_5` profile:
+a tandem-layout, attack-role, battery-electric (`BEV`) catalog entry with
+numeric weight and payload fields 17.0 and 5.0. This identifies the selected
+software architecture, not a public commercial model, construction material,
+or installed payload. The mapping is direct for unit 12702. Unit 12674 logged
+the same enum under the same reported `3793M` build and again after updating to
+`3815M`, but its executable is absent, so transferring the name and metadata is
+a strong inference rather than a byte-for-byte confirmation. `GERBERA` is a
+separate, unselected application enum; Gerbera attribution here comes from the
+forensic case context.
+
+The exact flight-controller make/model and firmware remain unknown. Its main
+link is the native UART `/dev/ttyAP`, not the STM32 USB endpoint. The program is
+prepared to accept custom MAVLink firmware tags `45INAV06`/`45INAV07`, but no
+actual `AUTOPILOT_VERSION` response survives. GNSS, IMU, compass, and barometer
+chip models are likewise absent.
+
+The BEV class and RC-style throttle settings do not identify the motor,
+propeller, ESC, battery, BMS, or power-distribution hardware. The live ELink
+arm-test channel does not identify or prove a fuze, initiator, warhead, or other
+terminal payload. Antenna hardware, airframe structure/materials, and the
+camera sensor/lens also remain unknown. The configured Sony IMX219 node failed
+its I²C probe and was not the operational camera. No Quectel cellular modem was
+detected.
 
 ## Reconstruction status
 

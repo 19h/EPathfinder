@@ -14,8 +14,8 @@ reconstruction's startup graph.
 | LEETOP carrier M.2 Key E | Intel 8265NGW | PCIe Wi-Fi plus USB Bluetooth | Linux `iwlwifi`/Bluetooth stacks | Confirmed photographically and in kernel enumeration |
 | LEETOP carrier M.2 Key M | 128 GB 2242 NVMe | PCIe Gen3 ×2 through MAXIO MAP1202 | Linux storage stack | Confirmed; unit-12702 device identifies as KingSpec NE-128 2242 |
 | Jetson Orin NX | Unidentified primary flight controller | Tegra UART `ttyTHS1` as `/dev/ttyAP`; 460,800 bit/s in the retained configuration | `SerialLink` → `MavLinkCommunicator` → MAVLink handlers | Configured production path; attached board unknown |
-| Jetson Orin NX | Unidentified ELink controller/modem | USB CDC ACM as `/dev/ttyFC`; 57,600 bit/s; rule expects ST VCP `0483:5740` | `SerialLink` → `ELinkCommunicator` → ELink handlers | Configured production path; attached board unknown |
-| Jetson USB host | HJ-ZOOM10-4K camera | UVC 1.10, VID:PID `32e4:9415`, `/dev/video0` | `CameraUSB` → `CameraV4L` → `CameraT205` | Confirmed installed and selected |
+| Jetson Orin NX | Unidentified ELink controller/peripheral | USB CDC ACM as `/dev/ttyFC`; 57,600 bit/s; rule expects ST VCP `0483:5740` | `SerialLink` → `ELinkCommunicator` → ELink handlers | Confirmed live path: unit 12674 received six arm-test on/off cycles; attached PCB and MCU unknown |
+| Jetson USB host | HJ-ZOOM10-4K camera | UVC 1.10, Ailipu-assigned VID:PID `32e4:9415`, `/dev/video0` | `CameraUSB` → `CameraV4L` → `CameraT205` | Confirmed installed and selected; sensor/lens unknown |
 | Jetson media engine | Camera stream | 1,920 × 1,080, 30 frames/s, MJPEG hardware decode | ThunderGaze process and `EVision` | Confirmed operating mode |
 | Jetson PCIe | Intel Wireless-AC 8265 | PCIe for Wi-Fi; USB function for integrated Bluetooth | Linux network stack; ELink/network services | Confirmed hardware |
 | Jetson PCIe | Realtek Gigabit Ethernet controller | PCI ID `10ec:8168`, `r8168` | Linux network stack; UDP/TCP transports | Confirmed family |
@@ -25,6 +25,34 @@ reconstruction's startup graph.
 
 The retained settings also define an optional backup serial link at 57,600
 bit/s, but its device path is empty.
+
+## Provisioned vehicle envelope
+
+Both recovered deployments repeatedly start with internal vehicle enum 9. In
+the unit-12702 executable, enum 9 is `SH10_5`; its vehicle-information record is
+serialized as `TANDEM`, `ATTACK`, `BEV`, `weight=17.0`, and `payload=5.0`.
+These are the production application's selected airframe-layout, role,
+propulsion-class, and catalog fields. They are stronger than unused feature
+strings, but remain provisioning evidence rather than independent measurement
+of the physical airframe.
+
+Unit 12674's executable is absent. It did, however, log enum 9 under the same
+reported `3793M` build as the recovered executable and retained enum 9 under
+the later `3815M` build. Applying the `SH10_5` record to that unit is therefore
+a strong cross-version inference, not byte-for-byte confirmation.
+
+`BEV` is distinct from the executable's `GAS` and `TJE` engine classes, so the
+selected architecture is battery-electric. The retained throttle command
+range is 1500–1900 with a base of 1650, and version 9 enables the software's
+reversible-throttle path. The motor, propeller, ESC, motor count, battery,
+power distribution, and physical reverse capability remain unidentified.
+
+The catalog does not state units for weight 17.0 or payload 5.0. `ATTACK` and
+the payload value must not be converted into a claim about an installed
+warhead. The physical manufacturer, dimensions, tandem-wing geometry,
+construction materials, and servo arrangement also remain unknown. `GERBERA`
+is a separate executable enum (99), not the selected enum; Gerbera naming in
+this repository comes from the forensic case context.
 
 ## Carrier interfaces and actual population
 
@@ -104,14 +132,34 @@ layer.
 3. ThunderGaze version 5 performs object/road processing and exchanges its
    results with `EVision`.
 4. `EVision` applies a 9 × 9 angular calibration grid over a 1,920 × 1,080
-   frame, a 40 ms frame delay, and the configured ignored image region.
+   frame, a 40 ms frame delay, and the configured ignored image region. The
+   central-axis limits yield approximately 120.02° horizontal by 71.30°
+   vertical calibrated field of view.
 5. Camera/gimbal history is time-aligned to detections so pixel positions can
    be projected into yaw/pitch observations.
 6. Results feed road matching, target state, EScout corrections, and
    EPathfinder modes.
 
-The physical sensor, lens, motorized zoom mechanism, and gimbal assembly behind
-the `HJ-ZOOM10-4K` USB descriptor remain unknown.
+USB-IF assigns VID `32e4` to Ailipu Technology Co., Ltd. This constrains the
+registered USB-interface vendor but not the downstream optical assembly. The
+physical sensor, lens, motorized zoom mechanism, and gimbal assembly behind the
+`HJ-ZOOM10-4K` USB descriptor remain unknown.
+
+## Flight controller and terminal interface boundary
+
+The primary autopilot is connected through the Jetson-native UART `/dev/ttyAP`,
+so it provides no USB VID/PID or product string. EPathfinder parses MAVLink
+`AUTOPILOT_VERSION` and has an allowlist for custom tags `45INAV06` and
+`45INAV07`, but neither image retains an actual response, board/vendor/product
+ID, UID, or observed custom tag. The controller and its GNSS, IMU,
+magnetometer, and barometer therefore remain unidentified.
+
+The STM32 VCP identity `0483:5740` belongs to the separate `/dev/ttyFC` ELink
+path. Unit 12674 recorded six incoming arm-test on/off cycles, establishing a
+responding external ELink channel. That is not enough to call the peer a fuze:
+its PCB, MCU, downstream electrical load, initiator, payload, and any warhead
+remain unknown. ST publishes this VID:PID as a reusable virtual-COM example,
+so it cannot identify a particular STM32 family or board.
 
 ## Navigation and control layers
 
@@ -168,7 +216,10 @@ grounding, antenna routing, GPIO numbering convention, or the external circuits
 connected to arm/execute lines. Those require continuity measurements, harness
 labels, or a complete installed-system teardown.
 
-## Primary carrier references
+## Primary references
 
 - [LEETOP A603 product specification](https://www.leetop.top/products/a603-carrier-board-for-orin-nx-orin-nano)
 - [LEETOP A603 Carrier Board V2.1 manual](https://files.seeedstudio.com/Leetop_A603_Carrier_Board_V2.1%200228.pdf)
+- [USB-IF assigned USB vendor IDs](https://www.usb.org/sites/default/files/usb_vids_080223.pdf)
+- [MAVLink `AUTOPILOT_VERSION` field definitions](https://mavlink.io/en/messages/common.html#AUTOPILOT_VERSION)
+- [STMicroelectronics USB VCP example using `0483:5740`](https://www.st.com/resource/en/user_manual/um1021-stm32f105xx-stm32f107xx-stm32f2xx-and-stm32f4xx-usb-onthego-host-and-device-library-stmicroelectronics.pdf)

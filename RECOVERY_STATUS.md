@@ -230,6 +230,9 @@ JSON bidirectionally, and compare reconnect timing and bytes.
 Assumption: the two images belong to Gerbera-family aircraft, as specified by
 the forensic case context. Dependent result: platform naming in this
 documentation; the software architecture is independent of that label.
+The recovered application separately selects internal profile `SH10_5`; its
+catalog also contains an unselected `GERBERA` enum. The application therefore
+does not independently prove the case-context attribution.
 
 Probe: correlate storage serials, unit IDs, acquisition chain, airframe
 photographs, and physical labels. Contradictory chain-of-custody evidence
@@ -252,8 +255,11 @@ connector map with the A603 V2.1 manual.
 ### A20 — Camera internals
 
 Assumption: `HJ-ZOOM10-4K` is a USB product descriptor, not a complete camera
-part number. Dependent results: sensor, lens, zoom mechanism, and gimbal identity
-remain unknown; only UVC identity and 1080p30 MJPEG operation are asserted.
+part number. USB-IF assigns its VID to Ailipu Technology, and the retained
+angular grid establishes approximately 120.02° × 71.30° central-axis field
+of view. Dependent results: sensor, lens, zoom mechanism, and gimbal identity
+remain unknown; only the interface vendor, UVC identity, calibrated field of
+view, and 1080p30 MJPEG operation are asserted.
 
 Probe: photograph labels, query full UVC extension controls, inspect USB strings
 from the running device, or disassemble the camera module.
@@ -261,8 +267,11 @@ from the running device, or disassemble the camera module.
 ### A21 — Flight-controller and ELink PCBs
 
 Assumption: `/dev/ttyAP`, `/dev/ttyFC`, MAVLink, and the expected ST USB VCP
-identify interfaces and roles but not board models. Dependent results: no
-Pixhawk/Cube/Matek/CUAV or ELink hardware assignment is made.
+identify interfaces and roles but not board models. `/dev/ttyAP` is the native
+Tegra UART and exposes no USB identity. Unit 12674's received ELink arm-test
+cycles prove a live peer on `/dev/ttyFC`, but not its PCB, MCU, or downstream
+load. Dependent results: no Pixhawk/Cube/Matek/CUAV, fuze, or particular ELink
+board assignment is made.
 
 Probe: obtain USB serial/product strings, board photographs, PCB markings,
 firmware-identification messages, or bootloader responses.
@@ -290,6 +299,26 @@ Probe: inspect acquisition records and full-assembly photographs, and correlate
 the Jetson serial, carrier PN, SSD serial, Wi-Fi address, and airframe identifier
 before assigning all photographed parts to one unit.
 
+### A24 — Operational vehicle profile
+
+Assumption: the repeatedly logged `plane_ver=9` reflects the vehicle profile
+used by the deployed applications. The recovered executable maps enum 9 to
+`SH10_5` and serializes it as `TANDEM`, `ATTACK`, `BEV`, `weight=17.0`, and
+`payload=5.0`. Dependent result: tandem layout, attack role, and
+battery-electric propulsion are provisioned classifications, not independent
+physical measurements. The two numeric fields have no encoded units and do not
+prove an installed payload.
+
+The mapping is direct for unit 12702. Unit 12674 logs enum 9 under the same
+reported `3793M` build and the later `3815M` build, but its executable is
+absent; applying the type record to that unit is a strong cross-version
+inference rather than byte-level confirmation.
+
+Probe: correlate a complete-aircraft photograph, data plate, harness and
+propulsion inspection, measured mass, and deployment record with the profile.
+Contradictory physical evidence would falsify the profile-to-airframe mapping
+without changing the recovered software metadata.
+
 ## Resolved hardware ambiguities
 
 - Jetson is resolved to Orin NX 16 GB P3767-0000; older Orin Nano strings are
@@ -300,10 +329,17 @@ before assigning all photographed parts to one unit.
 - The operating camera is the USB UVC `HJ-ZOOM10-4K`, not the failed IMX219
   device-tree entry and not the optional ZR10 backend.
 - Active camera mode is 1080p30 MJPEG; the product string does not prove 4K use.
+- USB VID `32e4` resolves to Ailipu Technology, while the sensor/lens remain
+  unknown. The retained angular calibration resolves approximately 120.02°
+  horizontal × 71.30° vertical on the central axes.
 - Intel AC 8265 supplies both Wi-Fi and Bluetooth; no Quectel modem was
   detected.
 - `/dev/ttyAP` is the Tegra UART used for primary MAVLink;
-  `/dev/ttyFC` is the USB CDC ACM path assigned to ELink.
+  `/dev/ttyFC` is the USB CDC ACM path assigned to ELink. Six received arm-test
+  cycles establish a responding peer but not a fuze or board model.
+- Both units selected `SH10_5`, whose catalog record is tandem-layout,
+  attack-role, and battery-electric. This resolves the provisioned vehicle
+  class, not the physical manufacturer or component bill of materials.
 
 ## Bounded opportunities and risks
 
