@@ -14,7 +14,7 @@ reconstruction's startup graph.
 | LEETOP carrier M.2 Key E | Intel 8265NGW | PCIe Wi-Fi plus USB Bluetooth | Linux `iwlwifi`/Bluetooth stacks | Confirmed photographically and in kernel enumeration |
 | LEETOP carrier M.2 Key M | 128 GB 2242 NVMe | PCIe Gen3 ×2 through MAXIO MAP1202 | Linux storage stack | Confirmed; unit-12702 device identifies as KingSpec NE-128 2242 |
 | Jetson Orin NX module | Texas Instruments INA3221 | I²C address `0x40`; `VDD_IN`, `VDD_CPU_GPU_CV`, and `VDD_SOC`; each configured for a 5 mΩ shunt | Kernel `ina3221` driver and `jtop` | Confirmed active module power monitor; does not identify propulsion power hardware |
-| Jetson Orin NX | Unidentified primary flight controller | Tegra UART `ttyTHS1` as `/dev/ttyAP`; 460,800 bit/s in the retained configuration | `SerialLink` → `MavLinkCommunicator` → MAVLink handlers | Configured production path; attached board unknown |
+| Jetson Orin NX | Historical `MATEKH743` autopilot target; exact PCB unknown | Tegra UART `ttyTHS1` as `/dev/ttyAP`; 460,800 bit/s in the retained configuration | `SerialLink` → `MavLinkCommunicator` → MAVLink handlers | Interface confirmed. Shared deleted telemetry identifies an earlier ArduPilot/ArduPlane 4.5.7 `MATEKH743` target with custom tag `45INAV06`; cloning prevents assignment of a PCB/revision to either aircraft |
 | Jetson Orin NX | Unidentified ELink controller/peripheral | USB CDC ACM as `/dev/ttyFC`; 57,600 bit/s; rule expects ST VCP `0483:5740` | `SerialLink` → `ELinkCommunicator` → ELink handlers | Confirmed live path: unit 12674 received six arm-test on/off cycles. Shared deleted factory/test residue identifies an earlier matching peer as `Mordor` / `Flight adapter`, revision 2.00; deployed PCB and MCU unknown |
 | Jetson USB host | HJ-ZOOM10-4K camera | UVC 1.10, Ailipu-assigned VID:PID `32e4:9415`, `/dev/video0` | `CameraUSB` → `CameraV4L` → `CameraT205` | Confirmed installed and selected; deleted factory/test descriptors add manufacturer string `HJ` and revision 4.19 but cannot assign a historical serial to either aircraft; sensor/lens unknown |
 | Jetson media engine | Camera stream | 1,920 × 1,080, 30 frames/s, MJPEG hardware decode | ThunderGaze process and `EVision` | Confirmed operating mode |
@@ -73,7 +73,7 @@ commercial SKU remains high-confidence rather than confirmed.
 | USB | Two USB 3 Type-A receptacles, USB 3 ZIF, USB 2 Micro-AB | UVC camera, four-port USB 2 hub, and CDC ACM device enumerated; connector-to-device and hub-port mapping are unknown |
 | CSI camera | One CSI connector | No operating CSI camera established; the configured IMX219 probe failed with `-121` |
 | Expansion | 40-position and 14-position headers carrying UART, CAN, GPIO, I²C, SPI, and I²S functions | Tegra UART is known. Five discrete-line settings survive, but the recovered unit-12702 executable does not drive them; photographs do not establish connector pins or attached circuits |
-| DC input | Vendor-specified 9–20 V DC, 60 W carrier input capability | Connector is visible; aircraft supply voltage, regulator chain, battery, and power wiring are unknown |
+| DC input | Vendor-specified 9–20 V DC, 60 W carrier input capability | Connector is visible; a shared historical test reports about 24.7–24.8 V vehicle/battery telemetry, which cannot have fed this input directly without conversion. Supply rail, regulator chain, battery, and wiring remain unknown |
 | Fan header | Active-cooling output | Fan is installed; exact fan electrical data are unknown |
 | Power monitor | TI INA3221, three current/bus-voltage channels over I²C | Active at address `0x40`; software exposes it through hwmon. Recovered labels are `VDD_IN`, `VDD_CPU_GPU_CV`, and `VDD_SOC`, each with a 5 mΩ device-tree shunt value; NVIDIA identifies these as module-power domains |
 
@@ -113,7 +113,7 @@ radio, antenna, or network-provider model.
 
 ```mermaid
 sequenceDiagram
-    participant FC as Flight controller
+    participant FC as Historical MATEKH743 target / flight controller
     participant MAV as MAVLink handlers
     participant Scout as EScout
     participant Vision as ThunderGaze / EVision
@@ -153,6 +153,13 @@ layer.
 6. Results feed road matching, target state, EScout corrections, and
    EPathfinder modes.
 
+A shared historical session enumerates absolute zoom 0–736, absolute focus
+0–289, continuous autofocus, automatic exposure, and automatic white balance
+on `/dev/video0`; it reads zoom 155 and commands the 736 endpoint. The same
+session carries MAVLink gimbal-attitude traffic from component 154 with device
+IDs 1, 2, and 3. Neither the control ranges nor those protocol IDs identify a
+sensor, lens, or gimbal product.
+
 USB-IF assigns VID `32e4` to Ailipu Technology Co., Ltd. This constrains the
 registered USB-interface vendor but not the downstream optical assembly. The
 physical sensor, lens, motorized zoom mechanism, and gimbal assembly behind the
@@ -163,11 +170,44 @@ not a camera model or focal-length specification.
 ## Flight controller and terminal interface boundary
 
 The primary autopilot is connected through the Jetson-native UART `/dev/ttyAP`,
-so it provides no USB VID/PID or product string. EPathfinder parses MAVLink
-`AUTOPILOT_VERSION` and has an allowlist for custom tags `45INAV06` and
-`45INAV07`, but neither image retains an actual response, board/vendor/product
-ID, UID, or observed custom tag. The controller and its GNSS, IMU,
-magnetometer, and barometer therefore remain unidentified.
+so it provides no direct USB enumeration. A deleted EPathfinder session shared
+exactly by both APP images does retain its MAVLink `AUTOPILOT_VERSION` response:
+ArduPilot/ArduPlane version `0x040507ff` (4.5.7, stable-version class), custom
+tag `45INAV06`, board version `0x03f50000`, vendor/product values `1209:5740`,
+and ChibiOS hash `6a85082c`. ArduPilot's board registry maps the encoded APJ ID
+1013 to `AP_HW_MATEKH743`; the official target uses an STM32H743xx MCU.
+
+This is a target-family identification, not an exact PCB or per-aircraft
+installation. Matek uses `MATEKH743` for H743-WING, WLITE, SLIM, and MINI
+products across multiple revisions. The historical fragment is byte-identical
+at the same physical offset in both cloned images, and its UID field is zero.
+No exact board serial, form factor, or revision can therefore be assigned.
+
+The session contains live primary inertial and magnetic data, a healthy-compass
+transition, absolute pressure around 993.3 hPa, and differential pressure. It
+also shows the autopilot GPS input with no fix while ELink reports a separate
+25–27-satellite solution at approximately 10 Hz. The 62 surviving ELink fixes
+cover only 0.111 m north-to-south by 0.025 m east-to-west in 6.105 seconds,
+with mean reported ground speed 0.046 m/s. The controller is disarmed, throttle
+remains zero, relative altitude remains close to zero, and its distance-sensor
+altitude is zero throughout. This is a stationary integration/test session, not
+a flight trace. Standard `MATEKH743` definitions span ICM20602,
+MPU6000, ICM42605, and ICM42688P inertial variants, have no onboard compass,
+and commonly probe DPS310 pressure hardware. Those definitions narrow the
+candidate family; they do not prove an IMU, external compass, barometer,
+differential-pressure sensor, or GNSS receiver model in either aircraft.
+
+The ELink fixes center on `55.692162906, 49.250045682`. That point is about
+565 m inside the current OpenStreetMap boundary for the Kazan Higher Tank
+Command School training range near Usady and lies on an isolated rectangular
+structure in the supplied satellite view. Continuous receiver/local counters,
+changing satellite/velocity data, and centimetre-scale jitter strongly favor
+an active stationary GNSS feed, although replay cannot be excluded. Since the
+same deleted bytes occur at the same physical offset in both cloned APP images,
+the location is evidence about a common historical commissioning/master-image
+session, not the location history of either deployed aircraft. Full evidence
+and geographic caveats are in
+[the forensic hardware report](FORENSIC_HARDWARE.md#elink-gnss-geolocation-and-session-state).
 
 The STM32 VCP identity `0483:5740` belongs to the separate `/dev/ttyFC` ELink
 path. Unit 12674 recorded six incoming arm-test on/off cycles, establishing a
@@ -231,12 +271,14 @@ starts.
 ## Unresolved physical wiring
 
 Storage and the supplied photographs cannot establish the operational connector
-pinouts, wire colors, actual supply voltage, level shifting, isolation,
-grounding, antenna routing, GPIO numbering convention, or the external circuits
-that might have been intended for the configured arm/execute lines. The
-unit-12702 executable performs no writes on those paths. Establishing any
-external circuit requires continuity measurements, harness labels, or a
-complete installed-system teardown.
+pinouts, wire colors, actual rail voltages, level shifting, isolation, grounding,
+antenna routing, GPIO numbering convention, or the external circuits that might
+have been intended for the configured arm/execute lines. A shared historical
+session reports about 24.7–24.8 V at vehicle-telemetry level, not where or how
+that voltage was distributed. The unit-12702 executable performs no writes on
+the configured GPIO paths. Establishing any external circuit requires
+continuity measurements, harness labels, or a complete installed-system
+teardown.
 
 ## Primary references
 
@@ -245,5 +287,9 @@ complete installed-system teardown.
 - [LEETOP A603 Carrier Board V2.1 manual](https://files.seeedstudio.com/Leetop_A603_Carrier_Board_V2.1%200228.pdf)
 - [USB-IF assigned USB vendor IDs](https://www.usb.org/sites/default/files/usb_vids_080223.pdf)
 - [MAVLink `AUTOPILOT_VERSION` field definitions](https://mavlink.io/en/messages/common.html#AUTOPILOT_VERSION)
+- [ArduPilot APJ board-ID registry](https://raw.githubusercontent.com/ArduPilot/ardupilot/master/Tools/AP_Bootloader/board_types.txt)
+- [ArduPilot `MATEKH743` hardware definition](https://raw.githubusercontent.com/ArduPilot/ardupilot/master/libraries/AP_HAL_ChibiOS/hwdef/MatekH743/hwdef.dat)
+- [Matek H743 target and sensor matrix](https://www.mateksys.com/?p=5159)
+- [OpenStreetMap KVVKU training-range boundary](https://www.openstreetmap.org/way/1445987734)
 - [STMicroelectronics USB VCP example using `0483:5740`](https://www.st.com/resource/en/user_manual/um1021-stm32f105xx-stm32f107xx-stm32f2xx-and-stm32f4xx-usb-onthego-host-and-device-library-stmicroelectronics.pdf)
 - [Texas Instruments INA3221 product specification](https://www.ti.com/product/INA3221)

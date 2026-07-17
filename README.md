@@ -12,9 +12,12 @@ Gerbera is an expendable fixed-wing unmanned aircraft family documented in
 false-target, reconnaissance, and one-way-attack/"kamikaze" roles. The two
 aircraft examined here use the same core computing and imaging architecture:
 the Jetson performs the outer perception, navigation, and mission functions,
-while an unidentified flight controller remains responsible for stabilization
-and physical actuator output. Additional serial, USB, UDP, and TCP paths connect
-the Jetson to the camera, ELink, VNav, service clients, and optional sensors.
+while a separate flight controller remains responsible for stabilization and
+physical actuator output. A shared deleted test log identifies that historical
+controller target as ArduPilot/ArduPlane 4.5.7 on `MATEKH743`; it does not prove
+which compatible Matek PCB or revision was installed in either aircraft.
+Additional serial, USB, UDP, and TCP paths connect the Jetson to the camera,
+ELink, VNav, service clients, and optional sensors.
 
 This repository reconstructs that Jetson application as compiling source and
 documents the surrounding hardware as a system. It is not the complete aircraft
@@ -39,13 +42,14 @@ Both recovered aircraft use the same core architecture:
 | Camera | USB UVC 1.10 device `HJ-ZOOM10-4K`, USB VID:PID `32e4:9415`; VID registered to Ailipu Technology | Interface vendor and descriptor confirmed; image sensor and lens are unknown |
 | Operational video mode | 1,920 × 1,080 pixels, 30 frames/s, MJPEG, Jetson hardware decode | Confirmed; 4K operation was not observed |
 | Deployed USB-camera angular model | 21 zoom points, from 60.0° × 32.3° full field of view at 0% to 9.0° × 5.0° at 100% | Confirmed executable calibration used by the selected USB backend; constrains effective zoom behavior, not sensor/lens make or focal length |
+| Historical UVC optical controls | Absolute zoom 0–736; absolute focus 0–289; continuous autofocus; automatic exposure and white balance | Directly enumerated in the shared deleted test session, which reads zoom 155 and commands 736. Confirms controllable focus/zoom interface behavior, not a sensor or lens model |
 | Retained no-camera fallback grid | Approximately 120.02° horizontal × 71.30° vertical on the central axes | Present in `vision_calibration.json`, but code tracing shows it is not the deployed USB-camera projection path |
 | Wi-Fi/Bluetooth | Intel Dual Band Wireless-AC 8265, PCI ID `8086:24fd`, with integrated Bluetooth | Confirmed |
 | Wired Ethernet | Realtek RTL8111/8168/8411 family, PCI ID `10ec:8168`, `r8168` driver | Family confirmed; exact silicon revision unknown |
 | NVMe controller | MAXIO MAP1202, PCI ID `1e4b:1202`, PCIe Gen3 ×2 | Confirmed |
 | Primary storage, unit 12702 | KingSpec NE-128 2242, 128 GB M.2-2242 NVMe | Model and device serial confirmed |
 | Primary storage, unit 12674 | 128 GB NVMe using MAXIO MAP1202 | Capacity/controller confirmed; retail model and serial unknown |
-| Primary flight-controller path | Tegra UART `ttyTHS1`, exposed as `/dev/ttyAP` | Confirmed interface; flight-controller PCB unknown |
+| Historical primary flight-controller target | ArduPilot/ArduPlane 4.5.7 stable-version class, custom tag `45INAV06`, APJ board ID 1013 (`MATEKH743`), over Tegra UART `ttyTHS1` as `/dev/ttyAP` | Exact deleted telemetry is shared by both cloned images. It identifies a historical Matek H743 firmware target, not a particular H743-WING/WLITE/SLIM/MINI PCB, revision, or per-aircraft installation |
 | Secondary controller/ELink path | USB CDC ACM, exposed as `/dev/ttyFC`; rules expect STMicroelectronics USB VCP `0483:5740` | Confirmed live responding peer: unit 12674 logged six incoming arm-test cycles. Shared deleted factory/test residue identifies an earlier matching device as `Mordor` / `Flight adapter`, revision 2.00; deployed PCB/MCU unknown |
 | USB expansion | Four-port high-speed USB 2.0 hub | Confirmed; shared historical residue identifies an earlier same-topology interface as `05e3:0608` / `USB2.0 Hub`, revision 60.90, but not the exact deployed controller IC |
 
@@ -89,7 +93,7 @@ assembly:
 flowchart LR
     GCS[Ground or service client] -->|TCP JSON / network telemetry| J
     CAM[HJ-ZOOM10-4K USB UVC camera] -->|1080p30 MJPEG| J
-    FC[Unidentified flight controller] <-->|UART / MAVLink| J
+    FC[Historical MATEKH743 target; exact PCB unknown] <-->|UART / MAVLink| J
     EL[Responding, unidentified ELink peripheral] <-->|USB CDC ACM / ELink| J
     VN[VNav service] <-->|UDP navigation and plan checks| J
     OPT[Optional radar or Livox sensor] -->|TCP or Ethernet point data| J
@@ -124,7 +128,7 @@ The normal information path is:
    into high-level modes and control requests.
 5. MAVLink control handlers send mission, parameter, gimbal, and controller
    traffic back to the separate flight controller. The low-level actuator
-   loops remain inside that unidentified controller.
+   loops remain inside that separate controller.
 6. ELink and network paths exchange vehicle state, plan data, remote-control
    state, targets, and launcher/configurator status. Unit 12674 also recorded
    six received ELink arm-test state cycles, proving a live peer on this path
@@ -179,12 +183,39 @@ a strong inference rather than a byte-for-byte confirmation. `GERBERA` is a
 separate, unselected application enum; Gerbera attribution here comes from the
 forensic case context.
 
-The exact flight-controller make/model and firmware remain unknown. Its main
-link is the native UART `/dev/ttyAP`, not the STM32 USB endpoint. The program is
-prepared to accept custom MAVLink firmware tags `45INAV06`/`45INAV07`, but no
-actual `AUTOPILOT_VERSION` response survives. GNSS, IMU, compass, and barometer
-chip models are likewise absent. The recovered `Mordor` / `Flight adapter`
-strings describe a historical ELink-side USB device, not the main autopilot.
+A deleted EPathfinder session shared byte-for-byte by both cloned APP images
+contains an actual `AUTOPILOT_VERSION` response. It reports flight version
+`0x040507ff` (4.5.7, stable-version class), custom tag `45INAV06`, board version
+`0x03f50000` (APJ board ID 1013, `MATEKH743`), generic ArduPilot USB VID:PID
+`1209:5740`, and ChibiOS hash `6a85082c`. This resolves the historical firmware
+target to the Matek H743 family, but not the exact H743-WING, WLITE, SLIM, or
+MINI PCB/revision, and the cloned residue cannot establish that target as the
+per-aircraft installed board. The same session contains live primary IMU,
+magnetometer, absolute-pressure and differential-pressure data. It also shows
+the flight controller's own GPS input at no fix while ELink reports a separate
+25–27-satellite position solution. Sixty-two ELink fixes span 6.105 seconds at
+approximately 10 Hz but move only 0.111 m north-to-south and 0.025 m
+east-to-west; the flight controller is disarmed, throttle and distance-sensor
+altitude remain zero, and relative altitude remains close to zero. This is a
+stationary integration/test trace, not a flight.
+
+The fixes center on `55.692162906, 49.250045682`, approximately 565 m inside
+the current OpenStreetMap boundary for the Kazan Higher Tank Command School
+training range near Usady and on an isolated structure in the supplied
+satellite view. Continuous counters and changing PVT data favor a live
+stationary GNSS feed, but replay cannot be excluded. Because the complete
+fragment is cloned at the same physical offset in both APP images, the location
+is provenance for a common historical test/master filesystem—not evidence that
+either acquired aircraft visited, launched from, or was manufactured at the
+site. See the
+[full geolocation analysis](docs/FORENSIC_HARDWARE.md#elink-gnss-geolocation-and-session-state).
+
+Exact GNSS, IMU, compass, barometer, and airspeed-sensor chip models remain
+absent. The session additionally enumerates the UVC camera's 0–736 zoom,
+0–289 focus, continuous-autofocus, auto-exposure,
+and auto-white-balance controls, but supplies no sensor or lens identity. The
+recovered `Mordor` / `Flight adapter` strings still describe a historical
+ELink-side USB device, not the main autopilot.
 
 The BEV class and RC-style throttle settings do not identify the motor,
 propeller, ESC, battery, BMS, or power-distribution hardware. The live ELink
@@ -264,6 +295,10 @@ TCP service on port 8052.
 - [KingSpec NE 2242 NVMe specification](https://www.kingspec.com/product/m2-nvme-pcie-gen3-ssd-ne-2242mm.html)
 - [Intel Wireless-AC 8265 specification](https://www.intel.com/content/www/us/en/products/sku/94150/intel-dual-band-wirelessac-8265/specifications.html)
 - [ArduPilot MAVLink interface](https://ardupilot.org/dev/docs/mavlink-commands.html)
+- [ArduPilot APJ board-ID registry](https://raw.githubusercontent.com/ArduPilot/ardupilot/master/Tools/AP_Bootloader/board_types.txt)
+- [ArduPilot `MATEKH743` hardware definition](https://raw.githubusercontent.com/ArduPilot/ardupilot/master/libraries/AP_HAL_ChibiOS/hwdef/MatekH743/hwdef.dat)
+- [Matek H743 target and sensor matrix](https://www.mateksys.com/?p=5159)
+- [OpenStreetMap KVVKU training-range boundary](https://www.openstreetmap.org/way/1445987734)
 - [SIYI ZR10 specification](https://www.siyi.biz/en/product/tri-axis-single-camera-gimbal/zr10/spec/)
 - [Livox SDK product support](https://www.livoxtech.com/sdk)
 - [Gerbera platform record](https://war-sanctions.gur.gov.ua/en/uav/329)

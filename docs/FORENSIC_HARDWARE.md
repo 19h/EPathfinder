@@ -36,6 +36,7 @@ Confidence terms:
 | NVMe controller | MAXIO MAP1202, PCI ID `1e4b:1202`, PCIe Gen3 ×2 negotiated | Confirmed in both kernel logs at `var/log/dmesg:437` |
 | USB expansion | Four-port high-speed USB 2.0 hub | Confirmed in both deployed boots. Shared deleted factory/test residue identifies an earlier same-topology hub as `05e3:0608`, product `USB2.0 Hub`, revision 60.90; it does not prove the deployed hub's exact controller IC |
 | Primary autopilot interface | Tegra UART `ttyTHS1`, persistent name `/dev/ttyAP` | Confirmed interface. `settings.json` assigns this path to the primary MAVLink connection |
+| Historical primary autopilot target | ArduPilot/ArduPlane 4.5.7 stable-version class, custom tag `45INAV06`, APJ board ID 1013 (`MATEKH743`), ChibiOS hash `6a85082c` | Historical. An exact deleted EPathfinder telemetry fragment is shared by both APP images. This identifies an STM32H743-class Matek firmware target used in that earlier session, but not the exact H743-WING/WLITE/SLIM/MINI PCB/revision or the board installed in either aircraft |
 | Secondary ELink/controller interface | USB CDC ACM, persistent name `/dev/ttyFC`; device rule expects STMicroelectronics VCP VID:PID `0483:5740` | Interface and rule confirmed. Unit 12674 received six ELink arm-test state cycles, establishing a live responding serial peer. Deleted factory/test residue identifies an earlier `0483:5740` peer as `Mordor` / `Flight adapter`, revision 2.00; the deployed PCB and MCU remain unknown |
 | Deployed vehicle profile | Internal type `SH10_5`: `TANDEM`, role `ATTACK`, engine class `BEV`, catalog `weight=17.0`, `payload=5.0` | Directly mapped for unit 12702. Unit 12674 repeatedly logs the same enum, including under the same reported `3793M` build, but its executable is absent; the name/metadata transfer is therefore strong rather than byte-for-byte confirmed. Field units and physical manufacturer/model are not encoded |
 
@@ -86,6 +87,159 @@ for the ELink-side peer, but does not turn the STM32-compatible USB identity
 into the main autopilot identity. The primary flight controller remains on the
 separate native Tegra UART `/dev/ttyAP`.
 
+## Shared deleted flight-controller telemetry
+
+An unallocated APP extent contains an EPathfinder session from 41.706 through
+47.874 seconds after process start. The recoverable fragment begins at physical
+byte offset 16,784,564,224, has length 1,040,384 bytes, and has SHA-256
+`27891d7b82ac5d1fee71d7a4fce64b1e57230ef4012f8b2753ce34c1ff5e58d5`.
+The fragment and its physical offset are identical in the GB1 and GB2 APP
+images. That exact cloning makes it strong evidence for a historical
+commissioning/test configuration, but prevents assignment to either aircraft.
+
+At physical byte offset 16,784,589,833, the session prints a received MAVLink
+`AUTOPILOT_VERSION` structure:
+
+| Field | Recovered value | Interpretation |
+|---|---:|---|
+| `flight_sw_version` | `67438591` / `0x040507ff` | Semantic version 4.5.7; firmware-type byte `0xff`, the stable/official version class |
+| `flight_custom_version` | `45INAV06` | Observed custom firmware tag; no longer merely an executable allowlist string |
+| `board_version` | `66387968` / `0x03f50000` | ArduPilot writes `APJ_BOARD_ID << 16`; ID `0x03f5` / 1013 maps to `AP_HW_MATEKH743` |
+| `vendor_id`, `product_id` | `4617`, `22336` / `1209:5740` | ArduPilot's generic USB VID/PID values; not a Matek product-model identifier |
+| `os_custom_version` | `6a85082c` | ArduPilot/ChibiOS commit prefix; commit title `Remove lwip` |
+| `UID` | `0` | Supplies no board serial identity |
+| `uid2` | `38 00 41 00 0e 51 33 31 30 39 30 36` (12 logged bytes) | A raw historical MCU identifier survives, but it is cloned and does not encode the Matek retail PCB/revision or either aircraft's installed board |
+
+The official `MATEKH743` definition targets an STM32H743xx MCU. Matek uses the
+same target name for multiple H743-WING, WLITE, SLIM, and MINI products, so the
+APJ ID is a target-family result rather than an exact retail SKU. The standard
+target definitions and Matek's revision matrix span several inertial
+combinations—ICM20602, MPU6000, ICM42605, and ICM42688P—and therefore do not
+select one installed IMU from this log alone.
+
+The same session materially narrows the attached sensor classes:
+
+| Historical telemetry | What it establishes | Remaining boundary |
+|---|---|---|
+| Repeated `RAW_IMU` instance 0 with live acceleration, rotation, magnetic-field, and temperature values | A primary inertial stream and a magnetometer stream were active in the test | No `INS_ACC_ID`, `INS_GYR_ID`, or compass device-ID parameter survives; exact chips and board placement remain unknown |
+| `compass status changed: true` and nonzero magnetic values | A compass was accepted as healthy | Standard Matek H743 target boards have no built-in compass, making an external compass the likely standard-target configuration; its receiver/module is unidentified |
+| Repeated `SCALED_PRESSURE` with about 993.3 hPa absolute pressure and near-zero differential pressure | An absolute-pressure/barometer channel and a differential-pressure/airspeed channel were active | The standard target probes DPS310, while documented board variants/custom firmware permit alternatives; neither the barometer nor differential-pressure sensor model is proved |
+| Flight-controller `RAW_GPS` repeatedly reports fix type 0 and zero satellites | No working GNSS solution reached the autopilot input during this short test | Absence of a fix does not prove absence of a receiver |
+| Concurrent ELink `GLOBAL_POSITION` reports status 3 and 26 satellites with changing position/velocity | A separate ELink-side GNSS solution was live | Receiver, antenna, and whether this was the deployed aircraft's GNSS remain unknown |
+| MAVLink system-status battery voltage about 24,807 mV; ELink voltage about 24,659 mV | A roughly 24.7–24.8 V electrical source was reported during the historical test | Compatible with a six-series pack, but chemistry, series count, capacity, BMS, regulator chain, and propulsion connection are not proved |
+
+### ELink GNSS geolocation and session state
+
+The surviving ELink trace is a stationary position/velocity/time session rather
+than evidence of a flight. Sixty-two `GLOBAL_POSITION` reports cover 6.105
+seconds at approximately 10 Hz. Their mean position is
+`55.692162906, 49.250045682`; the complete horizontal envelope is only 0.111 m
+north-to-south by 0.025 m east-to-west. Reported ground speed averages 0.046
+m/s and never exceeds 0.127 m/s, while the altitude field ranges from 11,541
+to 11,551. The original application multiplies that field by ten before
+storing it in its millimetre coordinate representation, giving approximately
+115.41–115.51 m.
+
+The receiver-side `timeWeekMs` advances from 295,424,650 to 295,430,750 while
+`localMs` advances from 42,600 to 48,700. Position, velocity, course, altitude,
+and satellite count also change during the interval; only five consecutive
+reports repeat an identical receiver epoch. This behavior strongly favors an
+active stationary GNSS feed over a cached last-known coordinate. A deliberate
+recorded or synthetic replay cannot be excluded from storage evidence alone,
+but the fragment contains no HIL, simulation, replay, or GPS-injection marker.
+The GPS time-of-week corresponds to Wednesday 10:03:44.650 through
+10:03:50.750 under the conventional GPS-week origin. No week number survives,
+so it supplies no calendar date.
+
+Independent state evidence reinforces the stationary interpretation:
+
+| Concurrent evidence | Observation | Interpretation |
+|---|---|---|
+| Flight-controller `RAW_GPS` | 234 reports have fix type 0, zero satellites, and zero position | The live ELink solution was a separate navigation path, not the autopilot's own GPS input |
+| Vehicle state | One disarmed-state report; throttle is zero in all 118 surviving `VFR_HUD` reports | No propulsion event is present in the fragment |
+| Relative altitude and range | `VFR_HUD` altitude remains between -0.16 and 0.35 m; all 62 ELink distance-sensor altitude reports are zero | The test article remained at its initialized ground/reference level |
+| IMU and compass | Acceleration remains close to one gravity, gyro values remain close to zero, and magnetic values are stable | Consistent with a powered stationary article |
+| Air data | Differential pressure varies near zero while reported airspeed varies from 0.48 to 4.40 m/s; reported `VFR_HUD` groundspeed closely follows airspeed despite the static GNSS fix | Airflow/pitot activity is not physical translation of the aircraft |
+
+The field combination—fix status, satellite count, `1e-7`-degree latitude and
+longitude, altitude, N/E/D velocity, ground speed, course, and GPS
+time-of-week—is structurally close to a UBX `NAV-PVT` solution. In UBX,
+fix-type 3 denotes a 3D fix and equivalent coordinate and N/E/D kinematic
+quantities are exposed with defined integer scales.
+That comparison supports a valid 3D-like, likely multi-constellation PVT feed,
+but it does **not** identify a u-blox receiver: ELink firmware could normalize
+another receiver's output into the same generic fields. The proprietary ELink
+status enum and accuracy/differential-fix flags were not recovered, so status 3
+must not be promoted to an RTK claim. The observed 25–27 satellites and stable
+solution establish a functioning historical antenna path, not its antenna
+type, connector, placement, or installation in either acquired aircraft.
+
+The recovered coordinate shown in [the overview](../ref/shot1.png) and
+[the enlarged satellite view](../ref/shot2.png) falls on an isolated
+rectangular structure in heavily tracked terrain near Usady. The repository
+copies are anonymized presentation derivatives: the geocoder form and duplicate
+coordinate fields were cropped away, and all ancillary PNG metadata was
+discarded. `shot1.png` is the exact source-pixel rectangle `(916,0)` through
+`(2182,948)` and has SHA-256
+`1255e3785fc9cfa6d1dc04f8949b9bfeb3a1e306d0ecaa568a09fbb2a66b9526`;
+`shot2.png` is `(1100,0)` through `(2200,800)` and has SHA-256
+`a91010bf0a16892e2ab6ee4d161bbc3e5982f667cc256ca6781395fbd238aa9e`.
+No scaling, interpolation, blurring, content-aware editing, or generative image
+processing was applied.
+
+A point-in-polygon test against the current 71-node OpenStreetMap feature named
+“Полигон Казанского высшего танкового командного училища” places the point
+approximately 565 m inside the mapped KVVKU tank-school range/danger-area
+boundary. It is approximately 503 m east of the separately mapped
+“Учебные стенды КВВКУ” training-stands polygon. OpenStreetMap records that the
+range boundary was added from EGRN/cadastral boundaries and Wikimapia; it is
+useful corroboration, not an authoritative ownership determination.
+
+Two independent sources support the broader site attribution without locating
+this exact structure. A Republic of Tatarstan planning document, citing the
+Russian Ministry of Defence, lists Military Town 34 at Usady. A 2017 Kazan
+Federal University paper documents the KVVKU tankodrome in Kazan's
+Privolzhsky District and UAV/GNSS positioning work there. Converting the
+paper's first published UTM39N control point places that separate experiment
+about 3.76 km northwest of the recovered coordinate; it corroborates the
+facility, not a relationship between that DJI experiment and EPathfinder.
+
+Public 30–90 m terrain models place the surrounding surface at approximately
+103–105 m, while ELink reports about 115.5 m in the application's altitude
+representation. Combined with the satellite marker falling on a structure,
+this is compatible with an antenna/test article on a roof or tower roughly
+ten metres above surrounding terrain. Terrain-model resolution, vertical
+datum, absolute GNSS error, and unknown antenna height make that a low-confidence
+interpretation; the structure cannot be identified as a tower, control post,
+launcher, or any other specific installation from these images.
+
+Taken together, the strongest bounded interpretation is a powered, stationary
+commissioning or systems-integration session at a structure within the mapped
+KVVKU training range. Because the entire deleted fragment is byte-identical at
+the same physical offset in both APP images, it more likely records the history
+of a source/master filesystem or common test article than two visits by the
+acquired aircraft. It does not establish a launch, recovery, target, operator,
+developer, or manufacturing location for either aircraft.
+
+Recovered parameter reads (`COMPASS_CAL_FIT`, `COMPASS_AUTO_ROT`,
+`COMPASS_AUTODEC`, `COMPASS_DEC`, and `ARSPD_RATIO`) corroborate configured
+compass and airspeed paths but contain no device IDs. Searches of all
+non-sparse ext4 blocks marked unallocated found no `INS_ACC_ID`, `INS_GYR_ID`,
+`BARO1_DEVID`, or `COMPASS_DEV_ID` record and no checksum-valid raw MAVLink
+`AUTOPILOT_VERSION` frame. The recovered version structure exists as
+EPathfinder's formatted text log.
+
+The fragment also captures `v4l2-ctl --list-ctrls` output from `/dev/video0`.
+The historical UVC interface exposes absolute zoom 0–736 (read at 155 and then
+commanded to 736), absolute focus 0–289 with continuous autofocus enabled,
+exposure time 1–2500 with automatic exposure, and automatic white balance.
+This confirms controllable focus and zoom behavior at the UVC interface. It
+does not identify the sensor die, lens model, focal lengths, optical zoom ratio,
+or mechanical assembly. Concurrent MAVLink component 154 traffic carries
+`GIMBAL_DEVICE_ATTITUDE_STATUS` for device IDs 1, 2, and 3, but no vendor/model
+or device-information response survives, so those numeric IDs are not mapped
+to physical gimbal products.
+
 ## Storage identification
 
 The unit-12702 device reports `NE-128 2242`. KingSpec's official NE-series
@@ -116,6 +270,12 @@ projection code multiplies them by normalized coordinates from -0.5 to +0.5.
 They constrain the deployed software's calibrated zoom behavior, but do not
 prove focal lengths, optical construction, or a literal 10× optical ratio.
 `CameraT205` is an internal class name, not a recovered camera part number.
+
+The shared deleted test session directly enumerates the camera's V4L2 controls:
+absolute zoom 0–736, absolute focus 0–289, continuous autofocus, automatic
+exposure, and automatic white balance. It reads zoom values 0, 155, and 736 and
+issues a command for 736. These runtime observations prove a controllable
+focus/zoom interface; they still do not supply a sensor or lens identifier.
 
 The separate retained 9 × 9 JSON table spans approximately 120.02° horizontal
 × 71.30° vertical on its central axes. Code tracing shows that table is used
@@ -165,10 +325,13 @@ that the physical ESC implemented reverse operation.
 Battery voltage is carried over ELink and low-battery logic compares its raw
 value to `18200`. Millivolts, and hence approximately 18.2 V, is a plausible
 interpretation, but the executable does not state the unit or whether this is
-the propulsion or avionics supply. It is compatible with, but does not prove,
-a roughly six-series lithium pack. Chemistry, series count, capacity, BMS,
-power-distribution board, converters, connectors, and manufacturers remain
-unknown.
+the propulsion or avionics supply. The shared deleted session independently
+reports MAVLink battery voltage near 24,807 mV and ELink voltage near 24,659 mV.
+Those values support the millivolt interpretation and are compatible with, but
+do not prove, a roughly six-series lithium pack. They may also be test/replay
+telemetry rather than a trace from either acquired aircraft. Chemistry, series
+count, capacity, BMS, power-distribution board, converters, connectors, and
+manufacturers remain unknown.
 
 The Jetson module separately exposes a Texas Instruments INA3221 three-channel
 current/bus-voltage monitor over I²C at address `0x40`. The recovered device
@@ -256,23 +419,28 @@ drive such a circuit through these configured Jetson lines.
 - `AUTOPILOT_VERSION` decoding is in `HeartbeatHandler::processMessage` at VA
   `0x16cf58`; custom-tag comparisons occur at `0x16dd70–0x16ddc8`, with
   `45INAV06`/`45INAV07` at file offsets `0x24cbc8`/`0x24cbd8`.
+- The shared deleted flight-controller log begins at APP physical byte offset
+  16,784,564,224; its formatted `AUTOPILOT_VERSION` record begins at
+  16,784,589,833. `tools/scan_ext4_free.py` performs the read-only ext4
+  free-block/sparse-extent intersection and pattern/MAVLink-frame scan used to
+  locate and independently search this residue.
 
 ## Flight-control interpretation
 
 The primary `/dev/ttyAP` path carries the application's MAVLink/ArduPilot-facing
-traffic. `/dev/ttyFC` is assigned to the proprietary ELink stack. These names
-and protocols identify logical roles, not the attached controller boards.
-ArduPilot compatibility does not identify a Pixhawk, Cube, Matek, CUAV, or any
-other flight-controller family.
+traffic. `/dev/ttyFC` is assigned to the proprietary ELink stack. A shared
+deleted session now identifies the historical UART peer's target as
+`MATEKH743`, running an ArduPilot/ArduPlane 4.5.7 stable-version build with
+custom tag `45INAV06`. It also proves that inertial, magnetic, absolute-pressure,
+and differential-pressure data paths were live in that session.
 
-The application parses MAVLink `AUTOPILOT_VERSION`, including board, vendor,
-product, UID, firmware-version, and custom-version fields. It treats the
-eight-byte custom tags `45INAV06` and `45INAV07` as acceptable. No received
-`AUTOPILOT_VERSION` record, actual custom tag, parameter dump, flight log, or
-board UID survives in either image. Those strings are therefore a firmware
-allowlist/capability, not identification of the installed firmware or flight
-controller. MAVLink IMU, GNSS, magnetometer, pressure, and airspeed handlers
-similarly establish data paths, not sensor chip models.
+That result is deliberately narrower than an exact PCB identification.
+`MATEKH743` is one ArduPilot target shared across multiple Matek H743 products
+and revisions, and both disk images contain the same deleted bytes at the same
+offset. It therefore cannot distinguish H743-WING from WLITE, SLIM, or MINI,
+select an IMU/barometer revision, or establish the board independently in both
+airframes. The UID field is zero, and the generic `1209:5740` values do not
+close that gap.
 
 The main autopilot is especially not identified by `0483:5740`: its production
 path is the separate Tegra UART `/dev/ttyAP`, which has no USB descriptor. The
@@ -316,11 +484,14 @@ recovered.
 - The configured Jetson arm/execute line numbers do not close that gap: their
   methods are logging-only no-ops in the original recovered unit-12702 build
   and in the historical 3613 executable.
-- The main flight-controller PCB, GNSS receiver, IMU, compass, barometer,
-  motor, propeller, ESC, battery, power distribution, antennas, camera
-  sensor/lens, and terminal hardware make/models remain unknown. The INA3221
-  resolves only the Jetson module's rail-monitor IC; `Mordor` / `Flight
-  adapter` resolves only a historical ELink-side USB self-description.
+- The historical main flight-controller firmware target is now resolved to
+  `MATEKH743`, ArduPilot/ArduPlane 4.5.7, custom tag `45INAV06`. The exact PCB
+  SKU/revision and its per-aircraft installation remain unproved. GNSS receiver,
+  IMU, compass, barometer, differential-pressure sensor, motor, propeller, ESC,
+  battery, power distribution, antennas, camera sensor/lens, and terminal
+  hardware make/models remain unknown. The INA3221 resolves only the Jetson
+  module's rail-monitor IC; `Mordor` / `Flight adapter` resolves only a
+  historical ELink-side USB self-description.
 
 ## Primary references
 
@@ -333,5 +504,18 @@ recovered.
 - [Intel Wireless-AC 8265 specification](https://www.intel.com/content/www/us/en/products/sku/94150/intel-dual-band-wirelessac-8265/specifications.html)
 - [USB-IF assigned USB vendor IDs](https://www.usb.org/sites/default/files/usb_vids_080223.pdf)
 - [MAVLink `AUTOPILOT_VERSION` field definitions](https://mavlink.io/en/messages/common.html#AUTOPILOT_VERSION)
+- [ArduPilot APJ board-ID registry](https://raw.githubusercontent.com/ArduPilot/ardupilot/master/Tools/AP_Bootloader/board_types.txt)
+- [ArduPilot `MATEKH743` hardware definition](https://raw.githubusercontent.com/ArduPilot/ardupilot/master/libraries/AP_HAL_ChibiOS/hwdef/MatekH743/hwdef.dat)
+- [ArduPilot version-report construction](https://raw.githubusercontent.com/ArduPilot/ardupilot/master/libraries/GCS_MAVLink/GCS_Common.cpp)
+- [Matek H743 target and sensor matrix](https://www.mateksys.com/?p=5159)
+- [ArduPilot/ChibiOS commit `6a85082c`](https://github.com/ArduPilot/ChibiOS/commit/6a85082c)
+- [u-blox UBX `NAV-PVT` field and fix-type reference](https://content.u-blox.com/sites/default/files/documents/u-blox-F10-TIM-3.01_InterfaceDescription_UBX-23003447.pdf)
+- [OpenStreetMap KVVKU training-range boundary](https://www.openstreetmap.org/way/1445987734)
+- [OpenStreetMap KVVKU training stands](https://www.openstreetmap.org/way/365349083)
+- [Republic of Tatarstan territorial waste-management plan listing Military Town 34 at Usady](https://kt.tatarstan.ru/file/pub/pub_4161353.pdf)
+- [Kazan Federal University paper documenting UAV/GNSS work at the KVVKU tankodrome](https://kpfu.ru/portal/docs/F2125721560/159_4_est_8.pdf)
+- [OpenTopoData SRTM90 elevation query for the recovered coordinate](https://api.opentopodata.org/v1/srtm90m?locations=55.6921625,49.2500455)
+- [OpenTopoData ASTER30 elevation query for the recovered coordinate](https://api.opentopodata.org/v1/aster30m?locations=55.6921625,49.2500455)
+- [Open-Elevation lookup for the recovered coordinate](https://api.open-elevation.com/api/v1/lookup?locations=55.6921625,49.2500455)
 - [STMicroelectronics USB VCP example using `0483:5740`](https://www.st.com/resource/en/user_manual/um1021-stm32f105xx-stm32f107xx-stm32f2xx-and-stm32f4xx-usb-onthego-host-and-device-library-stmicroelectronics.pdf)
 - [Texas Instruments INA3221 product specification](https://www.ti.com/product/INA3221)

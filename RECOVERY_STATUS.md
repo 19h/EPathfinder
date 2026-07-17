@@ -5,9 +5,11 @@
 This repository reconstructs the EPathfinder companion-computer application
 used in two Gerbera-family aircraft. It covers the onboard Jetson application,
 protocol adapters, state model, vision interfaces, and controller API. It does
-not contain the unidentified flight-controller firmware, ThunderGaze source,
-VNav implementation, radio/modem firmware, camera firmware, propulsion control,
-or physical payload electronics.
+not contain the flight-controller firmware image, ThunderGaze source, VNav
+implementation, radio/modem firmware, camera firmware, propulsion control, or
+physical payload electronics. Deleted telemetry identifies a historical
+`MATEKH743` firmware target, but does not recover its source/binary or prove an
+exact PCB in either aircraft.
 
 All 61 identified application component concepts have compiling source
 counterparts. “Implemented” is graded as follows:
@@ -61,6 +63,33 @@ base without changing the deployed-application reconstruction:
   four-port `USB2.0 Hub`. Because the residue is identical in both images and
   its boot identity differs from both aircraft, none of those historical
   serials is assigned to unit 12702 or 12674.
+- A second shared deleted artifact was recovered from unallocated APP blocks.
+  The 1,040,384-byte EPathfinder log fragment begins at physical byte offset
+  16,784,564,224 and has SHA-256
+  `27891d7b82ac5d1fee71d7a4fce64b1e57230ef4012f8b2753ce34c1ff5e58d5`.
+  It is byte-for-byte identical at the same offset in both APP images. Its
+  received MAVLink `AUTOPILOT_VERSION` record reports ArduPilot/ArduPlane 4.5.7,
+  stable-version class, custom tag `45INAV06`, APJ board ID 1013
+  (`MATEKH743`), generic ArduPilot values `1209:5740`, and ChibiOS hash
+  `6a85082c`. Live inertial, magnetic, absolute-pressure,
+  differential-pressure, battery, and separate ELink GNSS telemetry also
+  survives. The session also enumerates UVC absolute zoom 0–736, absolute focus
+  0–289, continuous autofocus, automatic exposure, and automatic white balance.
+  The exact cloning makes these historical test facts, not two independent
+  per-aircraft observations.
+- The ELink GNSS trace contains 62 fixes over 6.105 seconds at approximately
+  10 Hz. It centers on `55.692162906, 49.250045682`, varies by only 0.111 m
+  north-to-south and 0.025 m east-to-west, and reports mean ground speed 0.046
+  m/s. The controller is disarmed; throttle is zero in all surviving
+  `VFR_HUD` records; relative altitude remains close to zero; and all ELink
+  distance-sensor altitude reports are zero. This is a stationary test trace,
+  not a flight. The coordinate is approximately 565 m inside the current
+  OpenStreetMap boundary for the Kazan Higher Tank Command School training
+  range near Usady. Continuous counters and changing position/velocity data
+  favor a live GNSS feed, but replay remains possible. Because the fragment is
+  cloned, this is historical test/master-image provenance and not proof that
+  either acquired aircraft visited the location. See
+  [the bounded geolocation analysis](docs/FORENSIC_HARDWARE.md#elink-gnss-geolocation-and-session-state).
 
 The deleted full-descriptor log is retained at
 `img/UDA/recovery/validated_carves/gzip_003_409063424.decompressed`
@@ -68,6 +97,10 @@ The deleted full-descriptor log is retained at
 `468675ba46446e187b182f9c93eb7c9e1706fa38a8969438ed0d3cbb3d47f98b`).
 Descriptor lines are indexed in
 [the hardware inventory](docs/FORENSIC_HARDWARE.md#forensic-source-locations).
+The read-only unallocated-block scanner used for the APP recovery is retained
+as `tools/scan_ext4_free.py`; it intersects ext4 free-block bitmaps with
+non-sparse host extents, reports selected text patterns, and validates candidate
+raw MAVLink `AUTOPILOT_VERSION` frames by CRC.
 
 The 512 MiB ext4 journals were also dumped and searched independently. They
 retain directory metadata for historical `EPathfinder_3378`, `_3579`, `_3613`,
@@ -325,29 +358,37 @@ part number. USB-IF assigns its VID to Ailipu Technology. The deployed empty
 9.0° × 5.0° at 100%. The retained 120.02° × 71.30° JSON grid is used only
 by the no-camera fallback path. Shared deleted factory/test logs add USB
 manufacturer string `HJ`, device revision 4.19, and two historical serials,
-but cannot assign a serial to either aircraft. Dependent results: sensor, lens,
-focal lengths, zoom mechanism, and gimbal identity remain unknown; only the
-interface identity, calibrated effective field-of-view range, and 1080p30
-MJPEG operation are asserted.
+but cannot assign a serial to either aircraft. A separate shared test session
+enumerates absolute zoom 0–736, absolute focus 0–289, continuous autofocus,
+automatic exposure, and automatic white balance. Dependent results: sensor,
+lens, focal lengths, optical/mechanical construction, and gimbal identity
+remain unknown; only the interface identity, control surfaces, calibrated
+effective field-of-view range, and 1080p30 MJPEG operation are asserted.
 
 Probe: photograph labels, query full UVC extension controls, inspect USB strings
 from the running device, or disassemble the camera module.
 
 ### A21 — Flight-controller and ELink PCBs
 
-Assumption: `/dev/ttyAP`, `/dev/ttyFC`, MAVLink, and the expected ST USB VCP
-identify interfaces and roles but not board models. `/dev/ttyAP` is the native
-Tegra UART and exposes no USB identity. Unit 12674's received ELink arm-test
-cycles prove a live peer on `/dev/ttyFC`, but not its PCB, MCU, or downstream
-load. Shared deleted factory/test residue identifies one earlier matching
-`0483:5740` device's self-reported strings as `Mordor` / `Flight adapter`,
-revision 2.00. The byte-identical residue cannot assign its serial to either
-aircraft, and it is not the main autopilot. Dependent results: no
-Pixhawk/Cube/Matek/CUAV, fuze, or particular deployed ELink-board assignment is
-made.
+Assumption: `/dev/ttyAP` and `/dev/ttyFC` identify separate roles. A shared
+deleted `/dev/ttyAP` session directly reports ArduPilot/ArduPlane 4.5.7,
+custom tag `45INAV06`, and APJ board ID 1013 (`MATEKH743`). This establishes a
+historical Matek H743 firmware target, not a particular H743-WING/WLITE/SLIM/MINI
+PCB or revision. Both APP images contain the same fragment at the same physical
+offset, its UID is zero, and its generic `1209:5740` values do not distinguish
+hardware; assigning the result independently to aircraft 12702 and 12674 would
+therefore be unsound.
 
-Probe: obtain USB serial/product strings, board photographs, PCB markings,
-firmware-identification messages, or bootloader responses.
+Unit 12674's received ELink arm-test cycles separately prove a live peer on
+`/dev/ttyFC`, but not its PCB, MCU, or downstream load. Shared deleted UDA
+residue identifies one earlier matching `0483:5740` device's self-reported
+strings as `Mordor` / `Flight adapter`, revision 2.00. It is not the main
+autopilot. Dependent results: the historical autopilot target family is
+identified; exact deployed autopilot PCB, fuze, and deployed ELink-board
+assignments are not.
+
+Probe: obtain board photographs/markings, bootloader responses, sensor device-ID
+parameters, or independent per-unit telemetry with nonzero board UIDs.
 
 ### A22 — Optional hardware installation
 
@@ -405,7 +446,8 @@ without changing the recovered software metadata.
 - USB VID `32e4` resolves to Ailipu Technology, while the sensor/lens remain
   unknown. The selected USB backend resolves the effective full-field model to
   60.0° × 32.3° at 0% through 9.0° × 5.0° at 100%; the wider JSON grid
-  is a no-camera fallback.
+  is a no-camera fallback. Historical V4L2 enumeration additionally proves
+  absolute zoom/focus and autofocus control surfaces, not their optical parts.
 - Intel AC 8265 supplies both Wi-Fi and Bluetooth; no Quectel modem was
   detected.
 - `/dev/ttyAP` is the Tegra UART used for primary MAVLink;
@@ -413,6 +455,14 @@ without changing the recovered software metadata.
   cycles establish a responding peer. Historical USB strings resolve one
   factory/test peer to `Mordor` / `Flight adapter`, revision 2.00, but not its
   PCB/MCU or either deployed aircraft's serial.
+- A shared deleted `/dev/ttyAP` session resolves the historical primary
+  autopilot target to ArduPilot/ArduPlane 4.5.7, custom tag `45INAV06`, APJ ID
+  1013 (`MATEKH743`), on an STM32H743-class target. It does not select a Matek
+  retail PCB/revision or prove the installed board separately in either unit.
+- That session proves live inertial, magnetic, absolute-pressure, and
+  differential-pressure streams, plus a separate 26-satellite ELink GNSS
+  solution. The exact sensor/receiver chips remain unknown; standard target
+  definitions only bound candidate IMUs and make an external compass likely.
 - Texas Instruments INA3221 is resolved as the active three-channel I²C power
   monitor on the Jetson module. The device tree identifies `VDD_IN`,
   `VDD_CPU_GPU_CV`, and `VDD_SOC`, each configured for a 5 mΩ shunt. It does
@@ -435,8 +485,8 @@ without changing the recovered software metadata.
   path under A3.
 - **High impact:** unauthenticated client/VNav/ELink paths expose command and
   state surfaces; transport authentication and sender binding are not observed.
-- **Medium impact:** vendor confirmation, controller/camera inspection, and
-  photograph chain-of-custody correlation would close A19–A21 and A23.
+- **Medium impact:** vendor confirmation, exact controller/camera inspection,
+  and photograph chain-of-custody correlation would close A19–A21 and A23.
 - **Medium impact:** road and plan differential corpora would constrain A11 and
   A14.
 - **Medium impact:** isolated host-operation traces would close A16.
@@ -458,5 +508,6 @@ without changing the recovered software metadata.
   known contradiction remains unresolved.
 - **QG6 pass:** hardware claims are tied to supplied forensic log locations,
   supplied photographs, and official NVIDIA, LEETOP, KingSpec, Intel, Texas
-  Instruments, USB-IF, SIYI, Livox, and MAVLink documentation.
+  Instruments, USB-IF, SIYI, Livox, MAVLink, ArduPilot, and Matek
+  documentation.
 - **QG7 pass:** high/medium/low opportunities and risks are bounded above.
