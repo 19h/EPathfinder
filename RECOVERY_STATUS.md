@@ -30,6 +30,70 @@ Both storage images confirm the shared Jetson Orin NX 16 GB, UVC camera,
 Intel/Realtek networking, MAXIO-backed NVMe, `/dev/ttyAP`, and `/dev/ttyFC`
 architecture documented in [the forensic hardware inventory](docs/FORENSIC_HARDWARE.md).
 
+## Additional forensic recovery
+
+Two previously unallocated/deleted artifacts materially extend the evidence
+base without changing the deployed-application reconstruction:
+
+- An intact 12 MiB GNU tar stream was recovered from the GB1 APP image at raw
+  offset 15,439,233,024
+  (`img/APP/recovery/mec_leads/tar_probe/from_15439233024.bin`, SHA-256
+  `071e73a8fdf5297595650f5c7cc9460606d8945aef36595544df37a698247927`).
+  It contains the complete historical `EPathfinder_3613` package: a stripped
+  AArch64 executable, settings, version/release files, and vision calibration,
+  all dated 2023-05-11. The executable SHA-256 is
+  `682fa57232ee939e18c3e98de3ad443d11560c5ba156512207bbcfbbf6df4531`.
+  Its settings independently preserve the same `/dev/ttyAP` at 460,800 bit/s,
+  `/dev/ttyFC` at 57,600 bit/s, and `/dev/video0` architecture. It is historical
+  deployment residue and does not identify a current sensor, controller PCB,
+  propulsion part, or payload. Comparative disassembly also shows the same
+  GPIO behavior as the current unit-12702 executable: LED writes return
+  immediately, the three arm/execute constructor arguments are ignored, and
+  the four arm/execute-facing methods only log.
+- The GB1 and GB2 400 MiB UDA captures are byte-identical (SHA-256
+  `8f4866ede3aae2e356fb1ce2d6271b5ee8ab466424eb0006fb662cc1f9b0edaa`).
+  A deleted gzip stream carved at offset 409,063,424 contains full factory/test
+  USB descriptors absent from the later deployed logs. It records a
+  `0483:5740` revision-2.00 device as manufacturer `Mordor`, product `Flight
+  adapter`, serial `180028000747333031313638`; two `32e4:9415` revision-4.19
+  cameras as manufacturer `HJ`, product `HJ-ZOOM10-4K`, serials
+  `70381e10afe157e3` and `80300e14afe157e3`; and a `05e3:0608` revision-60.90
+  four-port `USB2.0 Hub`. Because the residue is identical in both images and
+  its boot identity differs from both aircraft, none of those historical
+  serials is assigned to unit 12702 or 12674.
+
+The deleted full-descriptor log is retained at
+`img/UDA/recovery/validated_carves/gzip_003_409063424.decompressed`
+(SHA-256
+`468675ba46446e187b182f9c93eb7c9e1706fa38a8969438ed0d3cbb3d47f98b`).
+Descriptor lines are indexed in
+[the hardware inventory](docs/FORENSIC_HARDWARE.md#forensic-source-locations).
+
+The 512 MiB ext4 journals were also dumped and searched independently. They
+retain directory metadata for historical `EPathfinder_3378`, `_3579`, `_3613`,
+and the deleted GB2 `_3815` package, plus an older 114-byte `cam.cfg`. Journal
+copies show the `_3815` package's expected calibration, settings, release,
+version, and executable entries, followed by filename-obscuring zero renames.
+The corresponding inode generations/extents have been recycled: `cam.cfg`'s
+former block and the `_3613_RELEASE.tgz` former 1,359,989-byte extent are now
+all zero, and a whole-partition path scan found no second package archive. This
+closes those journal leads without yielding another sensor, controller, camera,
+propulsion, or payload identifier. The separate intact `_3613` TAR above is the
+only complete historical application package recovered from unallocated data.
+
+The encrypted `mec` payload was treated as a separate recovery boundary. Both
+images contain 62,914,560,000-byte LUKS2 containers with byte-identical 16 MiB
+header/keyslot regions and matching sampled ciphertext; the keyslot uses
+Argon2i with about 938 MiB per guess. Reverse engineering shows that an
+Honor/Huawei controller sent the literal passphrase transiently in plaintext
+JSON `messageType` 10 over TCP 8052, after which local cleanup shredded the
+unlock scripts and ran `fstrim`. No type-10 payload, passphrase, disk-backed
+swap, hibernation image, core dump, or usable pre-shred OpenPGP extent survives
+locally. Targeted candidates were unsuccessful, so blind local guessing is not
+a proportionate path to additional hardware evidence. The full basis is in
+`GERBERA_FORENSIC_REPORT.md`; a controller acquisition or a
+preserved unlock packet capture would be required to cross this boundary.
+
 ## Component coverage
 
 | Constituent | Implemented result | Grade / boundary |
@@ -41,7 +105,7 @@ architecture documented in [the forensic hardware inventory](docs/FORENSIC_HARDW
 | ELink stack | Communicator and arm, attitude, flower, gimbal, interceptor, movement, position, status, and telemetry handlers | Strong for packet/state behavior |
 | VNav | UDP navigation, target/AHRS traffic, plan checks, and 512-sample yaw correlation | Strong for protocol-valid traffic |
 | Livox/lidar | Vendored Livox SDK 2.3.0, device adapter, and point clustering | Functional optional backend; installed hardware not established |
-| Support | Logging, remote controller, interception client, and LED/GPIO state | Strong protocols; physical GPIO writes remain inert |
+| Support | Logging, remote controller, interception client, and LED/GPIO state | Strong protocols; historical 3613 and original unit-12702 3793M binaries both make LED methods immediate returns and arm/execute methods logging-only no-ops |
 | EScout | Position/attitude histories, timing transforms, GNSS/inertial/ELink state, wind, range, road offsets, heading correction, and odometry surfaces | Functional; large sensor-fusion paths are not statement-equivalent |
 | Road records/map | Record layouts, graph structures, geodesic/local projections | Strong |
 | Road analyzers/runner | Analyzer hierarchy, topology element production, nearest-road projection, and offset state | Functional; large matching/averaging heuristics remain bounded under A14 |
@@ -255,11 +319,16 @@ connector map with the A603 V2.1 manual.
 ### A20 — Camera internals
 
 Assumption: `HJ-ZOOM10-4K` is a USB product descriptor, not a complete camera
-part number. USB-IF assigns its VID to Ailipu Technology, and the retained
-angular grid establishes approximately 120.02° × 71.30° central-axis field
-of view. Dependent results: sensor, lens, zoom mechanism, and gimbal identity
-remain unknown; only the interface vendor, UVC identity, calibrated field of
-view, and 1080p30 MJPEG operation are asserted.
+part number. USB-IF assigns its VID to Ailipu Technology. The deployed empty
+`camera_ip` setting selects the internal `CameraT205` USB/V4L2 backend; its
+21-point table models full field of view from 60.0° × 32.3° at 0% to
+9.0° × 5.0° at 100%. The retained 120.02° × 71.30° JSON grid is used only
+by the no-camera fallback path. Shared deleted factory/test logs add USB
+manufacturer string `HJ`, device revision 4.19, and two historical serials,
+but cannot assign a serial to either aircraft. Dependent results: sensor, lens,
+focal lengths, zoom mechanism, and gimbal identity remain unknown; only the
+interface identity, calibrated effective field-of-view range, and 1080p30
+MJPEG operation are asserted.
 
 Probe: photograph labels, query full UVC extension controls, inspect USB strings
 from the running device, or disassemble the camera module.
@@ -270,8 +339,12 @@ Assumption: `/dev/ttyAP`, `/dev/ttyFC`, MAVLink, and the expected ST USB VCP
 identify interfaces and roles but not board models. `/dev/ttyAP` is the native
 Tegra UART and exposes no USB identity. Unit 12674's received ELink arm-test
 cycles prove a live peer on `/dev/ttyFC`, but not its PCB, MCU, or downstream
-load. Dependent results: no Pixhawk/Cube/Matek/CUAV, fuze, or particular ELink
-board assignment is made.
+load. Shared deleted factory/test residue identifies one earlier matching
+`0483:5740` device's self-reported strings as `Mordor` / `Flight adapter`,
+revision 2.00. The byte-identical residue cannot assign its serial to either
+aircraft, and it is not the main autopilot. Dependent results: no
+Pixhawk/Cube/Matek/CUAV, fuze, or particular deployed ELink-board assignment is
+made.
 
 Probe: obtain USB serial/product strings, board photographs, PCB markings,
 firmware-identification messages, or bootloader responses.
@@ -330,16 +403,29 @@ without changing the recovered software metadata.
   device-tree entry and not the optional ZR10 backend.
 - Active camera mode is 1080p30 MJPEG; the product string does not prove 4K use.
 - USB VID `32e4` resolves to Ailipu Technology, while the sensor/lens remain
-  unknown. The retained angular calibration resolves approximately 120.02°
-  horizontal × 71.30° vertical on the central axes.
+  unknown. The selected USB backend resolves the effective full-field model to
+  60.0° × 32.3° at 0% through 9.0° × 5.0° at 100%; the wider JSON grid
+  is a no-camera fallback.
 - Intel AC 8265 supplies both Wi-Fi and Bluetooth; no Quectel modem was
   detected.
 - `/dev/ttyAP` is the Tegra UART used for primary MAVLink;
   `/dev/ttyFC` is the USB CDC ACM path assigned to ELink. Six received arm-test
-  cycles establish a responding peer but not a fuze or board model.
+  cycles establish a responding peer. Historical USB strings resolve one
+  factory/test peer to `Mordor` / `Flight adapter`, revision 2.00, but not its
+  PCB/MCU or either deployed aircraft's serial.
+- Texas Instruments INA3221 is resolved as the active three-channel I²C power
+  monitor on the Jetson module. The device tree identifies `VDD_IN`,
+  `VDD_CPU_GPU_CV`, and `VDD_SOC`, each configured for a 5 mΩ shunt. It does
+  not resolve the aircraft battery, BMS, regulator chain, or power distribution.
 - Both units selected `SH10_5`, whose catalog record is tandem-layout,
   attack-role, and battery-electric. This resolves the provisioned vehicle
   class, not the physical manufacturer or component bill of materials.
+- Five configured Jetson discrete-line numbers do not identify terminal
+  hardware. Both the historical 3613 and original unit-12702 3793M executables
+  make the LED methods immediately return and the arm/execute-facing methods
+  only log; unit 12674's later 3815M executable is unavailable for comparison.
+  Its live ELink arm-test peer remains separate evidence, but does not identify
+  a downstream load.
 
 ## Bounded opportunities and risks
 
@@ -360,7 +446,7 @@ without changing the recovered software metadata.
 ## Quality gates
 
 - **QG1 pass:** no normative conclusion is required.
-- **QG2 pass:** A1–A23 state assumptions, dependent results, and falsification
+- **QG2 pass:** A1–A24 state assumptions, dependent results, and falsification
   probes.
 - **QG3 pass for the bounded deliverable:** all application component concepts,
   controller graph, build target, dependency integrations, tests, hardware
@@ -371,6 +457,6 @@ without changing the recovered software metadata.
 - **QG5 pass:** installed hardware is separated from supported hardware; no
   known contradiction remains unresolved.
 - **QG6 pass:** hardware claims are tied to supplied forensic log locations,
-  supplied photographs, and official NVIDIA, LEETOP, KingSpec, Intel, SIYI,
-  Livox, and ArduPilot documentation.
+  supplied photographs, and official NVIDIA, LEETOP, KingSpec, Intel, Texas
+  Instruments, USB-IF, SIYI, Livox, and MAVLink documentation.
 - **QG7 pass:** high/medium/low opportunities and risks are bounded above.

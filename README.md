@@ -34,18 +34,20 @@ Both recovered aircraft use the same core architecture:
 | Physical carrier | LEETOP board marked PN `900-14887-0000`, Rev. 2.1, dated 2023-07-26 | Manufacturer, marked PN, and revision confirmed photographically; layout is consistent with the LEETOP A603 V2.1 family |
 | Carrier software configuration | NVIDIA P3768-0000 Orin Nano reference-carrier configuration | Confirmed in both operating-system images; this identifies the board-support configuration, not the physical carrier manufacturer |
 | Cooling | Carrier-mounted active fan and heat spreader | Confirmed photographically |
+| Jetson-module rail monitor | Texas Instruments INA3221, I²C address `0x40` | Confirmed active through the device tree, kernel driver, and hwmon. Its three 5 mΩ-configured channels are `VDD_IN`, `VDD_CPU_GPU_CV`, and `VDD_SOC`; this is the Orin module monitor, not the propulsion battery/BMS |
 | Deployed vehicle profile | Internal `SH10_5`: `TANDEM`, `ATTACK`, `BEV`, catalog `weight=17.0`, `payload=5.0` | Directly mapped for unit 12702; strong same-reported-build inference for unit 12674, whose executable is absent. Physical manufacturer, field units, and parts remain unverified |
 | Camera | USB UVC 1.10 device `HJ-ZOOM10-4K`, USB VID:PID `32e4:9415`; VID registered to Ailipu Technology | Interface vendor and descriptor confirmed; image sensor and lens are unknown |
 | Operational video mode | 1,920 × 1,080 pixels, 30 frames/s, MJPEG, Jetson hardware decode | Confirmed; 4K operation was not observed |
-| Camera angular calibration | Approximately 120.02° horizontal × 71.30° vertical on the central axes | Confirmed retained calibration; not a sensor/lens identification |
+| Deployed USB-camera angular model | 21 zoom points, from 60.0° × 32.3° full field of view at 0% to 9.0° × 5.0° at 100% | Confirmed executable calibration used by the selected USB backend; constrains effective zoom behavior, not sensor/lens make or focal length |
+| Retained no-camera fallback grid | Approximately 120.02° horizontal × 71.30° vertical on the central axes | Present in `vision_calibration.json`, but code tracing shows it is not the deployed USB-camera projection path |
 | Wi-Fi/Bluetooth | Intel Dual Band Wireless-AC 8265, PCI ID `8086:24fd`, with integrated Bluetooth | Confirmed |
 | Wired Ethernet | Realtek RTL8111/8168/8411 family, PCI ID `10ec:8168`, `r8168` driver | Family confirmed; exact silicon revision unknown |
 | NVMe controller | MAXIO MAP1202, PCI ID `1e4b:1202`, PCIe Gen3 ×2 | Confirmed |
 | Primary storage, unit 12702 | KingSpec NE-128 2242, 128 GB M.2-2242 NVMe | Model and device serial confirmed |
 | Primary storage, unit 12674 | 128 GB NVMe using MAXIO MAP1202 | Capacity/controller confirmed; retail model and serial unknown |
 | Primary flight-controller path | Tegra UART `ttyTHS1`, exposed as `/dev/ttyAP` | Confirmed interface; flight-controller PCB unknown |
-| Secondary controller/ELink path | USB CDC ACM, exposed as `/dev/ttyFC`; rules expect STMicroelectronics USB VCP `0483:5740` | Confirmed live responding peer: unit 12674 logged six incoming arm-test cycles; attached PCB/MCU unknown |
-| USB expansion | Four-port high-speed USB 2.0 hub | Confirmed; hub controller unknown |
+| Secondary controller/ELink path | USB CDC ACM, exposed as `/dev/ttyFC`; rules expect STMicroelectronics USB VCP `0483:5740` | Confirmed live responding peer: unit 12674 logged six incoming arm-test cycles. Shared deleted factory/test residue identifies an earlier matching device as `Mordor` / `Flight adapter`, revision 2.00; deployed PCB/MCU unknown |
+| USB expansion | Four-port high-speed USB 2.0 hub | Confirmed; shared historical residue identifies an earlier same-topology interface as `05e3:0608` / `USB2.0 Hub`, revision 60.90, but not the exact deployed controller IC |
 
 NVIDIA documents P3767-0000 as the production Jetson Orin NX 16 GB module and
 P3768-0000 as an Orin Nano reference-carrier configuration. The latter is the
@@ -77,8 +79,9 @@ assembly:
 - the running systems enumerated the UVC camera, a four-port USB 2.0 hub, and a
   USB CDC ACM device in addition to the onboard PCIe devices;
 - the exact carrier connectors and wire colors used for `/dev/ttyAP`,
-  `/dev/ttyFC`, the camera, and the five configured discrete lines cannot be
-  derived from the photographs or storage images.
+  `/dev/ttyFC`, and the camera cannot be derived from the photographs or
+  storage images. Five discrete-line numbers survive in configuration, but the
+  recovered unit-12702 executable does not drive them.
 
 ## How the aircraft electronics fit together
 
@@ -103,7 +106,7 @@ flowchart LR
         SC --> PF --> VC --> CC
     end
 
-    J -->|status indication and configured discrete outputs| IO[Carrier GPIO / external circuits]
+    J -.->|five retained settings; no writes in recovered build| IO[Unproven GPIO / external circuits]
 ```
 
 The normal information path is:
@@ -114,7 +117,9 @@ The normal information path is:
    odometry, and optional exact-heading observations.
 3. The UVC camera feeds the Jetson media pipeline. ThunderGaze produces target
    and road observations; `EVision` converts image coordinates to angular
-   measurements using the 1,920 × 1,080 calibration grid.
+   measurements using the selected USB backend's 21-point field-of-view/zoom
+   calibration. The separate 1,920 × 1,080 JSON grid is retained as the
+   no-camera fallback.
 4. `EPathfinder` combines mission state, fused navigation, and vision results
    into high-level modes and control requests.
 5. MAVLink control handlers send mission, parameter, gimbal, and controller
@@ -127,10 +132,19 @@ The normal information path is:
 7. `ClientController` exposes the local service API; `VehicleController`
    translates requests into vehicle state and subsystem operations.
 
-The exact electrical circuits driven by configured GPIO line numbers are not
-recoverable from storage. The settings identify red/green indicators and
-arm/execute-related discrete lines, but do not establish connector pins,
-voltage levels, isolation, external loads, or the airframe numbering scheme.
+The settings name line 11 for a green indicator, 12 for red, 33 for an
+arm-related pull-up, and 29 and 31 for execute-related pull-down/pull-up
+functions. In the original recovered unit-12702 executable, however, the
+`GPIOController` constructor ignores its final three integer arguments,
+`VehicleLed::init` and `VehicleLed::setLedEnabled` return immediately, while
+`GPIOController::armTestOn`, `armTestOff`, `armOn`, and `selfDestruction` only
+emit debug output and return. No GPIO library dependency or sysfs/gpiod access
+is present. Comparative disassembly of the recovered historical 3613
+executable shows the same implementation, so the behavior persisted across at
+least 3613 and unit 12702's 3793M build. These integers therefore do not
+establish a driven connector, voltage, external load, fuze, or terminal
+payload. Unit 12674's later executable is absent, so the binary-level
+conclusion cannot be transferred to build 3815M without qualification.
 
 ## Configured and optional peripherals
 
@@ -148,8 +162,9 @@ tablet, and odometry endpoints unset or disabled. The software also contains:
 - a proprietary ELink stack and UDP telemetry transport;
 - VNav plan validation, AHRS correction, target, road-point, and odometry
   datagrams;
-- GPIO/LED abstractions and launch/execute control surfaces whose external
-  circuitry is unknown.
+- GPIO/LED abstractions and launch/execute control surfaces; their handlers are
+  inert in the recovered unit-12702 build, and any external circuitry remains
+  unproven.
 
 ## What remains unidentified
 
@@ -168,7 +183,8 @@ The exact flight-controller make/model and firmware remain unknown. Its main
 link is the native UART `/dev/ttyAP`, not the STM32 USB endpoint. The program is
 prepared to accept custom MAVLink firmware tags `45INAV06`/`45INAV07`, but no
 actual `AUTOPILOT_VERSION` response survives. GNSS, IMU, compass, and barometer
-chip models are likewise absent.
+chip models are likewise absent. The recovered `Mordor` / `Flight adapter`
+strings describe a historical ELink-side USB device, not the main autopilot.
 
 The BEV class and RC-style throttle settings do not identify the motor,
 propeller, ESC, battery, BMS, or power-distribution hardware. The live ELink
@@ -176,7 +192,11 @@ arm-test channel does not identify or prove a fuze, initiator, warhead, or other
 terminal payload. Antenna hardware, airframe structure/materials, and the
 camera sensor/lens also remain unknown. The configured Sony IMX219 node failed
 its I²C probe and was not the operational camera. No Quectel cellular modem was
-detected.
+detected. The TI INA3221 resolves the Jetson module's own three-channel power
+monitor, not the wider aircraft power system. The separate `mec` vision payload
+remains LUKS2-encrypted: no passphrase or plaintext unlock transaction survives
+in either storage image, and deliberate shred/trim cleanup closes ordinary
+local undelete paths.
 
 ## Reconstruction status
 

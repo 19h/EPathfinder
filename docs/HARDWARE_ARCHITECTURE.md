@@ -13,15 +13,16 @@ reconstruction's startup graph.
 | LEETOP carrier | Active cooling assembly | Fan header and module heat spreader | Linux thermal control | Fan and heat spreader confirmed; fan model unknown |
 | LEETOP carrier M.2 Key E | Intel 8265NGW | PCIe Wi-Fi plus USB Bluetooth | Linux `iwlwifi`/Bluetooth stacks | Confirmed photographically and in kernel enumeration |
 | LEETOP carrier M.2 Key M | 128 GB 2242 NVMe | PCIe Gen3 ×2 through MAXIO MAP1202 | Linux storage stack | Confirmed; unit-12702 device identifies as KingSpec NE-128 2242 |
+| Jetson Orin NX module | Texas Instruments INA3221 | I²C address `0x40`; `VDD_IN`, `VDD_CPU_GPU_CV`, and `VDD_SOC`; each configured for a 5 mΩ shunt | Kernel `ina3221` driver and `jtop` | Confirmed active module power monitor; does not identify propulsion power hardware |
 | Jetson Orin NX | Unidentified primary flight controller | Tegra UART `ttyTHS1` as `/dev/ttyAP`; 460,800 bit/s in the retained configuration | `SerialLink` → `MavLinkCommunicator` → MAVLink handlers | Configured production path; attached board unknown |
-| Jetson Orin NX | Unidentified ELink controller/peripheral | USB CDC ACM as `/dev/ttyFC`; 57,600 bit/s; rule expects ST VCP `0483:5740` | `SerialLink` → `ELinkCommunicator` → ELink handlers | Confirmed live path: unit 12674 received six arm-test on/off cycles; attached PCB and MCU unknown |
-| Jetson USB host | HJ-ZOOM10-4K camera | UVC 1.10, Ailipu-assigned VID:PID `32e4:9415`, `/dev/video0` | `CameraUSB` → `CameraV4L` → `CameraT205` | Confirmed installed and selected; sensor/lens unknown |
+| Jetson Orin NX | Unidentified ELink controller/peripheral | USB CDC ACM as `/dev/ttyFC`; 57,600 bit/s; rule expects ST VCP `0483:5740` | `SerialLink` → `ELinkCommunicator` → ELink handlers | Confirmed live path: unit 12674 received six arm-test on/off cycles. Shared deleted factory/test residue identifies an earlier matching peer as `Mordor` / `Flight adapter`, revision 2.00; deployed PCB and MCU unknown |
+| Jetson USB host | HJ-ZOOM10-4K camera | UVC 1.10, Ailipu-assigned VID:PID `32e4:9415`, `/dev/video0` | `CameraUSB` → `CameraV4L` → `CameraT205` | Confirmed installed and selected; deleted factory/test descriptors add manufacturer string `HJ` and revision 4.19 but cannot assign a historical serial to either aircraft; sensor/lens unknown |
 | Jetson media engine | Camera stream | 1,920 × 1,080, 30 frames/s, MJPEG hardware decode | ThunderGaze process and `EVision` | Confirmed operating mode |
 | Jetson PCIe | Intel Wireless-AC 8265 | PCIe for Wi-Fi; USB function for integrated Bluetooth | Linux network stack; ELink/network services | Confirmed hardware |
 | Jetson PCIe | Realtek Gigabit Ethernet controller | PCI ID `10ec:8168`, `r8168` | Linux network stack; UDP/TCP transports | Confirmed family |
 | Jetson PCIe | 128 GB NVMe | MAXIO MAP1202, PCIe Gen3 ×2 | Operating system, application, maps, logs, vision data | Confirmed; unit-specific retail identity differs |
-| Jetson USB host | Four-port USB 2.0 hub | High-speed USB | Camera and USB serial expansion | Hub confirmed; downstream port topology unknown |
-| Jetson GPIO namespace | Indicator and arm/execute-related external circuits | Configured line numbers 11, 12, 29, 31, and 33 | `GPIOController`, `VehicleLed` | Logical configuration confirmed; electrical mapping and loads unknown; writes are inert in this reconstruction |
+| Jetson USB host | Four-port USB 2.0 hub | High-speed USB | Camera and USB serial expansion | Hub confirmed. Shared deleted factory/test residue records `05e3:0608`, product `USB2.0 Hub`, revision 60.90; exact deployed controller IC and downstream physical mapping remain unknown |
+| Jetson GPIO namespace | Unproven indicator and arm/execute-related circuits | Configured line numbers 11, 12, 29, 31, and 33 | `GPIOController`, `VehicleLed` | Settings confirmed. In both the historical 3613 and original recovered unit-12702 3793M executables the LED methods immediately return and arm/execute methods only log; there are no GPIO writes. Unit 12674's 3815M binary is unavailable |
 
 The retained settings also define an optional backup serial link at 57,600
 bit/s, but its device path is empty.
@@ -71,16 +72,25 @@ commercial SKU remains high-confidence rather than confirmed.
 | Ethernet | 10/100/1,000 Mbit/s RJ45 | Realtek `10ec:8168` enumerated; cable and link partner are unknown |
 | USB | Two USB 3 Type-A receptacles, USB 3 ZIF, USB 2 Micro-AB | UVC camera, four-port USB 2 hub, and CDC ACM device enumerated; connector-to-device and hub-port mapping are unknown |
 | CSI camera | One CSI connector | No operating CSI camera established; the configured IMX219 probe failed with `-121` |
-| Expansion | 40-position and 14-position headers carrying UART, CAN, GPIO, I²C, SPI, and I²S functions | Tegra UART and five configured discrete-line numbers are known; photographs do not establish their connector pins or attached circuits |
+| Expansion | 40-position and 14-position headers carrying UART, CAN, GPIO, I²C, SPI, and I²S functions | Tegra UART is known. Five discrete-line settings survive, but the recovered unit-12702 executable does not drive them; photographs do not establish connector pins or attached circuits |
 | DC input | Vendor-specified 9–20 V DC, 60 W carrier input capability | Connector is visible; aircraft supply voltage, regulator chain, battery, and power wiring are unknown |
 | Fan header | Active-cooling output | Fan is installed; exact fan electrical data are unknown |
+| Power monitor | TI INA3221, three current/bus-voltage channels over I²C | Active at address `0x40`; software exposes it through hwmon. Recovered labels are `VDD_IN`, `VDD_CPU_GPU_CV`, and `VDD_SOC`, each with a 5 mΩ device-tree shunt value; NVIDIA identifies these as module-power domains |
 
-The configuration names discrete lines 11 and 12 for two indicators, line 33
-for an arm-related pull-up, and lines 29 and 31 for execute-related pull-down
-and pull-up functions. These integers are retained software configuration.
-Without the original GPIO library semantics or continuity measurements, they
-must not be equated to physical header positions, SoC GPIO indices, or voltage
-levels.
+The configuration names discrete line 11 for the green indicator, line 12 for
+red, line 33 for an arm-related pull-up, and lines 29 and 31 for
+execute-related pull-down and pull-up functions. These integers are retained
+software configuration. In the original recovered unit-12702 executable, the
+`GPIOController` constructor ignores its final three integer arguments and
+both `VehicleLed` methods return
+without performing work. `GPIOController::armTestOn`, `armTestOff`, `armOn`,
+and `selfDestruction` only log and return; the binary has no GPIO library,
+sysfs path, or gpiod access. They must not be equated to driven physical header
+positions, SoC GPIO indices, voltage levels, or attached terminal hardware.
+The historical 3613 executable has the same implementation, establishing
+version persistence rather than a one-off reconstruction artifact. The later
+unit-12674 3815M executable is absent, so its implementation cannot be checked
+directly.
 
 ## Network and local-service wiring
 
@@ -131,10 +141,13 @@ layer.
 2. The Jetson hardware media path decodes the stream.
 3. ThunderGaze version 5 performs object/road processing and exchanges its
    results with `EVision`.
-4. `EVision` applies a 9 × 9 angular calibration grid over a 1,920 × 1,080
-   frame, a 40 ms frame delay, and the configured ignored image region. The
-   central-axis limits yield approximately 120.02° horizontal by 71.30°
-   vertical calibrated field of view.
+4. The deployed empty `camera_ip` setting selects the `CameraT205` USB/V4L2
+   object. Its 21-point calibration models full field of view from 60.0° ×
+   32.3° at 0% zoom to 9.0° × 5.0° at 100%, while V4L2
+   `zoom_absolute` controls drive the camera. `EVision` also loads a 9 × 9
+   JSON grid, a 40 ms frame delay, and an ignored image region; code tracing
+   shows that the grid's 120.02° × 71.30° central-axis span is the
+   no-camera fallback path, not the deployed USB-camera projection model.
 5. Camera/gimbal history is time-aligned to detections so pixel positions can
    be projected into yaw/pitch observations.
 6. Results feed road matching, target state, EScout corrections, and
@@ -143,7 +156,9 @@ layer.
 USB-IF assigns VID `32e4` to Ailipu Technology Co., Ltd. This constrains the
 registered USB-interface vendor but not the downstream optical assembly. The
 physical sensor, lens, motorized zoom mechanism, and gimbal assembly behind the
-`HJ-ZOOM10-4K` USB descriptor remain unknown.
+`HJ-ZOOM10-4K` USB descriptor remain unknown. The internal `CameraT205` class
+name and its approximately 6.5–6.7× angular narrowing are calibration evidence,
+not a camera model or focal-length specification.
 
 ## Flight controller and terminal interface boundary
 
@@ -159,7 +174,12 @@ path. Unit 12674 recorded six incoming arm-test on/off cycles, establishing a
 responding external ELink channel. That is not enough to call the peer a fuze:
 its PCB, MCU, downstream electrical load, initiator, payload, and any warhead
 remain unknown. ST publishes this VID:PID as a reusable virtual-COM example,
-so it cannot identify a particular STM32 family or board.
+so it cannot identify a particular STM32 family or board. A deleted shared
+factory/test boot records one matching device's self-reported manufacturer and
+product as `Mordor` / `Flight adapter`, plus serial
+`180028000747333031313638`. Because both UDA captures contain the exact same
+deleted bytes, that serial cannot be assigned to either deployed aircraft and
+does not identify the main UART-connected autopilot.
 
 ## Navigation and control layers
 
@@ -213,13 +233,17 @@ starts.
 Storage and the supplied photographs cannot establish the operational connector
 pinouts, wire colors, actual supply voltage, level shifting, isolation,
 grounding, antenna routing, GPIO numbering convention, or the external circuits
-connected to arm/execute lines. Those require continuity measurements, harness
-labels, or a complete installed-system teardown.
+that might have been intended for the configured arm/execute lines. The
+unit-12702 executable performs no writes on those paths. Establishing any
+external circuit requires continuity measurements, harness labels, or a
+complete installed-system teardown.
 
 ## Primary references
 
+- [NVIDIA Orin Nano/NX platform power-monitor documentation](https://docs.nvidia.com/jetson/archives/r36.4.4/DeveloperGuide/SD/PlatformPowerAndPerformance/JetsonOrinNanoSeriesJetsonOrinNxSeriesAndJetsonAgxOrinSeries.html)
 - [LEETOP A603 product specification](https://www.leetop.top/products/a603-carrier-board-for-orin-nx-orin-nano)
 - [LEETOP A603 Carrier Board V2.1 manual](https://files.seeedstudio.com/Leetop_A603_Carrier_Board_V2.1%200228.pdf)
 - [USB-IF assigned USB vendor IDs](https://www.usb.org/sites/default/files/usb_vids_080223.pdf)
 - [MAVLink `AUTOPILOT_VERSION` field definitions](https://mavlink.io/en/messages/common.html#AUTOPILOT_VERSION)
 - [STMicroelectronics USB VCP example using `0483:5740`](https://www.st.com/resource/en/user_manual/um1021-stm32f105xx-stm32f107xx-stm32f2xx-and-stm32f4xx-usb-onthego-host-and-device-library-stmicroelectronics.pdf)
+- [Texas Instruments INA3221 product specification](https://www.ti.com/product/INA3221)
